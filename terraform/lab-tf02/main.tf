@@ -1,8 +1,3 @@
-provider "aws" {
-  region  = "us-east-1" # Frankfurt
-  profile = "default"
-}
-
 data "aws_s3_bucket" "my_bucket" {
   bucket = var.tfstate_bucket_name # Zastąp nazwą bucketu z lab 1
 }

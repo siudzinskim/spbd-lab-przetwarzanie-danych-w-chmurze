@@ -11,6 +11,11 @@ terraform {
     bucket = "spbd-siudzinskim-tfstate" # Zastąp nazwą bucketu z lab 1
     key    = "terraform.tfstate"
     region = "us-east-1"
+    use_lockfile = true
   }
 }
 
+provider "aws" {
+  region  = "us-east-1"
+  profile = "default"
+}
