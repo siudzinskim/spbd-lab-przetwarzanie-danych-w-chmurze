@@ -1,5 +1,6 @@
 #!/bin/bash
 docker stop vs && docker container rm vs
+docker pull siudzinskim/vscode-dbt:latest
 mkdir -p ./config/workspace
 docker run -d \
   --name=vs \

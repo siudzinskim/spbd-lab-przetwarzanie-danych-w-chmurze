@@ -30,4 +30,6 @@ jobs:
           context: docker/vscode-server
           dockerfile: docker/vscode-server/Dockerfile
           push: true
-          tags: siudzinskim/vscode-dbt:${{ github.ref_name }}
+          tags: |
+            siudzinskim/vscode-dbt:${{ github.ref_name }}
+            siudzinskim/vscode-dbt:latest
