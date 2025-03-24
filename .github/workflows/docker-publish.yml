@@ -28,5 +28,6 @@ jobs:
         uses: docker/build-push-action@v5
         with:
           context: docker/vscode-server
+          dockerfile: docker/vscode-server/Dockerfile
           push: true
           tags: siudzinskim/vscode-dbt:${{ github.ref_name }}
