@@ -19,14 +19,15 @@ resource "aws_instance" "lab_instance" {
   instance_type               = "t2.micro"
   subnet_id                   = aws_subnet.public.id
   availability_zone           = aws_subnet.public.availability_zone
-  # associate_public_ip_address = true
-  # key_name               = "kp" # Zastąp nazwą swojego klucza SSH
+  associate_public_ip_address = true
+  key_name                    = "kp" # Zastąp nazwą swojego klucza SSH
+  security_groups             = [aws_security_group.allow_ssh.id]
 
   tags = {
     Name = "lab-ec2"
   }
 
-  user_data = filebase64("./startup.sh")
+  user_data_base64 = filebase64("./startup.sh")
 }
 
 resource "aws_ebs_volume" "example" {
