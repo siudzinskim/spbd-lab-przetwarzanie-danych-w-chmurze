@@ -12,6 +12,7 @@ pandas = "*"
 airflow = "*"
 jupyter = "*"
 faker = "*"
+kagglehub = "*"
 
 [build-system]
 requires = ["poetry-core"]
