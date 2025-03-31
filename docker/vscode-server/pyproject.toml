@@ -9,7 +9,7 @@ python = "^3.12"
 dbt-core = "^1.9.3"
 dbt-duckdb = "^1.9.2"
 pandas = "*"
-airflow = "*"
+apache-airflow = {version = "2.10.5", python = ">=3.10,<3.13"}
 jupyter = "*"
 faker = "*"
 kagglehub = "*"
