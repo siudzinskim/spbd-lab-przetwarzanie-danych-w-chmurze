@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "vscode-server-dbt"
-version = "0.1.0"
+version = "0.1.1"
 description = "Code-server with dbt"
 authors = ["Your Name <your.email@example.com>"]
 
@@ -8,6 +8,10 @@ authors = ["Your Name <your.email@example.com>"]
 python = "^3.12"
 dbt-core = "^1.9.3"
 dbt-duckdb = "^1.9.2"
+pandas = "*"
+airflow = "*"
+jupyter = "*"
+faker = "*"
 
 [build-system]
 requires = ["poetry-core"]
