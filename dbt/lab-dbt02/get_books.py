@@ -1,15 +1,18 @@
 import os
+import shutil
+
 import duckdb
 import kagglehub
 import pandas as pd
 
-
 dataset_path = kagglehub.dataset_download("thedevastator/books-sales-and-ratings")
 books_path = os.path.join(dataset_path, os.listdir(dataset_path)[0])
+shutil.copy(books_path, 'books.csv')
 
 # Create a DuckDB database
-db_path = "bookstore.ddb"
-con = duckdb.connect(database=db_path, read_only=False)
+DB_PATH = "bookstore.ddb"
+os.remove(DB_PATH)
+con = duckdb.connect(database=DB_PATH, read_only=False)
 
 # Read the CSV file into a pandas DataFrame
 try:
@@ -27,7 +30,7 @@ except Exception as e:
 # Create the 'books' table and insert the data from the DataFrame
 try:
     con.execute("CREATE TABLE books AS SELECT * FROM df")
-    print(f"Data successfully loaded into the 'books' table in '{db_path}'.")
+    print(f"Data successfully loaded into the 'books' table in '{DB_PATH}'.")
 except Exception as e:
     print(f"An error occurred while creating the table or inserting data: {e}")
 

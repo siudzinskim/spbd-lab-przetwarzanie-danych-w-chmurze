@@ -42,6 +42,10 @@ resource "aws_ebs_volume" "example" {
   tags = {
     Name = "lab-volume"
   }
+
+  lifecycle {
+    prevent_destroy = true
+  }
 }
 
 resource "aws_volume_attachment" "ebs_att" {

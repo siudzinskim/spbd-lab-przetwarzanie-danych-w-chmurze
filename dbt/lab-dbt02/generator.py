@@ -9,10 +9,12 @@ import os
 # --- Configuration ---
 LOCALES = ['en_GB', 'de_DE', 'fr_FR', 'es_ES', 'it_IT', 'pl_PL', 'de_AT', 'de_CH', 'de_DE']
 DEFAULT_NUM_CUSTOMERS = 100
+DEFAULT_CUSTOMERS_OFFSET = 1
 DEFAULT_START_DATE = date(2016, 1, 1)
 DEFAULT_END_DATE = date(2024, 12, 31)
 DEFAULT_CUSTOMERS_OUTPUT = "customers.csv"
 DEFAULT_TRANSACTIONS_OUTPUT = "transactions.json"
+DEFAULT_TRANSACTIONS_OFFSET = 1
 DEFAULT_BOOKS_INPUT = "books.csv" # Default input for book data
 
 # Initialize Faker
@@ -20,7 +22,7 @@ fake = Faker(LOCALES) # Initialize with multiple locales for diversity
 
 # --- Function Definitions ---
 
-def generate_customers(num_customers, output_file):
+def generate_customers(num_customers, output_file, customers_offset):
     """
     Generates synthetic customer data using the Faker library and writes it to a CSV file.
 
@@ -48,7 +50,7 @@ def generate_customers(num_customers, output_file):
             writer = csv.writer(file)
             writer.writerow(header)
 
-            for customer_id in range(1, num_customers + 1):
+            for customer_id in range(customers_offset, num_customers + 1 + customers_offset):
                 locale = random.choice(LOCALES)
                 # Temporarily set locale for this customer for better geographical consistency
                 current_faker = Faker(locale)
@@ -94,7 +96,7 @@ def generate_customers(num_customers, output_file):
         return []
     return customers_data
 
-def generate_transactions(customers_data, books_data, start_date, end_date, output_file):
+def generate_transactions(customers_data, books_data, start_date, end_date, output_file, transaction_offset):
     """
     Generates synthetic transaction data based on provided customer and book data,
     writing the output to a newline-delimited JSON file.
@@ -118,7 +120,7 @@ def generate_transactions(customers_data, books_data, start_date, end_date, outp
     """
     print(f"Generating transactions from {start_date.strftime('%Y-%m-%d')} to {end_date.strftime('%Y-%m-%d')} into {output_file}...")
     transactions = []
-    transaction_id = 1
+    transaction_id = transaction_offset
 
     if not customers_data:
         print("Error: No customer data provided. Cannot generate transactions.")
@@ -165,7 +167,7 @@ def generate_transactions(customers_data, books_data, start_date, end_date, outp
 
                     # Safely select a book_id if book data is available
                     if books_data:
-                         book_id = random.choice(books_data)['book_id']
+                         book_id = random.choice(books_data)['index']
                     else:
                          book_id = "UNKNOWN" # Placeholder if no book data
 
@@ -258,10 +260,10 @@ def load_books(input_file):
     try:
         with open(input_file, mode='r', newline='', encoding='utf-8') as file:
             reader = csv.DictReader(file)
-            # Basic validation: Check for 'book_id' column
-            if not reader.fieldnames or 'book_id' not in reader.fieldnames:
-                 print(f"Error: Required header 'book_id' not found in book file {input_file}.")
-                 return None # Critical error if book_id is missing
+            # Basic validation: Check for 'index' column
+            if not reader.fieldnames or 'index' not in reader.fieldnames:
+                 print(f"Error: Required header 'index' not found in book file {input_file}.")
+                 return None # Critical error if index is missing
             for row in reader:
                 # Optional: Add more validation for book data if needed here
                 books.append(row)
@@ -315,6 +317,13 @@ def parse_arguments():
              "Used if --generate is 'customers' or 'all'."
     )
     parser.add_argument(
+        "--customers-offset",
+        type=int,
+        default=DEFAULT_CUSTOMERS_OFFSET,
+        help=f"Customer id offset to generate (default: {DEFAULT_CUSTOMERS_OFFSET}).\n"
+             "Used if --generate is 'customers' or 'all'."
+    )
+    parser.add_argument(
         "--start-date",
         type=lambda s: datetime.strptime(s, '%Y-%m-%d').date(),
         default=DEFAULT_START_DATE,
@@ -353,10 +362,17 @@ def parse_arguments():
              f"Default: {DEFAULT_TRANSACTIONS_OUTPUT}"
     )
     parser.add_argument(
+        "--transactions-offset",
+        type=int,
+        default=DEFAULT_CUSTOMERS_OFFSET,
+        help=f"Transactions id offset to generate (default: {DEFAULT_CUSTOMERS_OFFSET}).\n"
+             "Used if --generate is 'transactions' or 'all'."
+    )
+    parser.add_argument(
         "--books-input",
         type=str,
         default=DEFAULT_BOOKS_INPUT,
-        help="Path to the input CSV file containing book data (requires 'book_id' header).\n"
+        help="Path to the input CSV file containing book data (requires 'index' header).\n"
              f"Used if generating transactions. Default: {DEFAULT_BOOKS_INPUT}"
     )
 
@@ -397,7 +413,7 @@ if __name__ == "__main__":
     # --- Step 1: Generate or Load Customers ---
     if args.generate in ['customers', 'all']:
         # Generate new customers
-        customers = generate_customers(args.num_customers, args.customers_output)
+        customers = generate_customers(args.num_customers, args.customers_output, args.customers_offset)
         if not customers: # Check if customer generation failed
              print("Exiting: Customer generation failed or produced no data.")
              exit(1)
@@ -412,7 +428,7 @@ if __name__ == "__main__":
     # This step runs if 'all' or 'transactions' was specified, AND if customer data is available.
     if args.generate in ['transactions', 'all']:
         if customers: # Ensure customer data (either loaded or generated) exists
-            generate_transactions(customers, books, args.start_date, args.end_date, args.transactions_output)
+            generate_transactions(customers, books, args.start_date, args.end_date, args.transactions_output, args.transactions_offset)
         else:
             # This condition implies an issue in the logic flow or previous error handling
             print("Error: Cannot generate transactions because customer data is unavailable. This might indicate an earlier failure.")
