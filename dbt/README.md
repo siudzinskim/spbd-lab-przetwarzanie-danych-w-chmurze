@@ -77,10 +77,10 @@ tworzą podstawową infrastrukturę na AWS.
 1. Zaloguj się do konsoli `AWS Academy Learner Lab` i uruchom laboratorium:
 2. W zakładce `AWS Details` znajduje się sekcja `Cloud Accsess`, rozwiń `AWS CLI`, kilkając przycisk `Show`, a następnie
    skopiuj dane logowania i wklej je do pliku `~/.aws/credentials`
-3. Przejdź do folderu `lab-dbt01`, a następnie utwórz elementy infrastruktury za pomocą Terraform.
-4. Zwróć uwagę na zawartość pliku `startup.sh`, wytłumacz jaka jaest jego funkcja i jakie czyności zostaną wykonane
-5. W konsoli AWS przejdź do `Key Pairs` w sekcji `EC2 -> Network & Security`, a następnie utwórz parę o nazwie `kp`.
+3. W konsoli AWS przejdź do `Key Pairs` w sekcji `EC2 -> Network & Security`, a następnie utwórz parę o nazwie `kp`.
    Podczas tworzenia plik zostanie pobrany do folderu `Downloads`.
+4. Przejdź do folderu `lab-dbt01`, a następnie utwórz elementy infrastruktury za pomocą Terraform.
+5. Zwróć uwagę na zawartość pliku `startup.sh`, wytłumacz jaka jaest jego funkcja i jakie czyności zostaną wykonane
 6. Utwórz tunel SSH do utworzonej instancji na porcie 8888, który umożliwi połączenie z usługą uruchomioną na zdalnej
    maszynie. Pomocny będzie terraform output. Wytłumacz jak działa taki tunel?
 7. Otwórz przeglądarkę i połącz się z localhost:8888
