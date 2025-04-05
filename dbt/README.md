@@ -153,7 +153,7 @@ duckdb bookstore.ddb
 7. Zapoznaj się z interfejsem DuckDB. Wykonaj kwerendę `.help`, następnie przetestuj kilka przykładowych metod, np.
    `.show`, `.databases`, `.tables`, `.schema`
 8. Wykonaj zapytanie `from books;`, pomijając "SELECT *". Zwróć uwagę, że możliwe jest skrócenie komendy.
-9. Wykonaj kwerendę `.rows`, a następnie ponownie zapytanie `from books`. Co się stało? wytłumacz format wyjściowy. Jak
+9. Wykonaj kwerendę `.columns`, a następnie ponownie zapytanie `from books`. Co się stało? wytłumacz format wyjściowy. Jak
    powrócić do normalnego trybu?
 10. Wykonaj polecenie:
 
