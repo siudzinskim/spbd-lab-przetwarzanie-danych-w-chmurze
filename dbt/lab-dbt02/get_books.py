@@ -11,7 +11,10 @@ shutil.copy(books_path, 'books.csv')
 
 # Create a DuckDB database
 DB_PATH = "bookstore.ddb"
-os.remove(DB_PATH)
+try:
+    os.remove(DB_PATH)
+except Exception:
+    pass
 con = duckdb.connect(database=DB_PATH, read_only=False)
 
 # Read the CSV file into a pandas DataFrame
