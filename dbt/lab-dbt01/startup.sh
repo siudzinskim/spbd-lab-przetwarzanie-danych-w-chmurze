@@ -73,5 +73,5 @@ echo "Startup script completed." >> /mnt/data/log/lab-startup.log
 date >> /mnt/data/log/lab-startup.log
 
 docker pull siudzinskim/vscode-dbt
-docker run -d  -p 8888:8443 -v /mnt/data/vscode:/config --name vs siudzinskim/vscode-dbt
+docker run -d  -p 8888:8443 -p 8080:8080 -v /mnt/data/vscode:/config --name vs siudzinskim/vscode-dbt
 (crontab -l ; echo "@reboot /usr/bin/docker start vs") | crontab -
