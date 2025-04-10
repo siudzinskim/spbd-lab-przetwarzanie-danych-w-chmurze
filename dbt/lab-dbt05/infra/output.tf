@@ -11,10 +11,6 @@ output "versioning_enabled" {
 }
 
 output "vscode-tunnel-cmd" {
-  value = "ssh -N -f -L 8888:localhost:8888 -i ~/Downloads/kp.pem ec2-user@${aws_instance.lab_instance.public_ip}"
-}
-
-output "airflow-tunnel-cmd" {
-  value = "ssh -N -f -L 8080:localhost:8080 -i ~/Downloads/kp.pem ec2-user@${aws_instance.lab_instance.public_ip}"
+  value = "ssh -N -f -L 8888:localhost:8888 -L 8080:localhost:8080 -i ~/Downloads/kp.pem ec2-user@${aws_instance.lab_instance.public_ip}"
 }
 

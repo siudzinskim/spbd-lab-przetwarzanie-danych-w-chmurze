@@ -26,5 +26,8 @@ ENV PATH="$VIRTUAL_ENV/bin:$PATH"
 RUN python3 -m venv $VIRTUAL_ENV \
   && poetry install --no-interaction
 
+RUN activate-global-python-argcomplete
+RUN register-python-argcomplete airflow >> ~/.bashrc
+
 # Set the entrypoint to the custom script
 ENTRYPOINT ["/init"]
