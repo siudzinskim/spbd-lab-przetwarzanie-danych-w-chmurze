@@ -16,7 +16,7 @@ data "aws_ami" "amazon_linux" {
 
 resource "aws_instance" "lab_instance" {
   ami                         = data.aws_ami.amazon_linux.id
-  instance_type               = "t3.small"
+  instance_type               = "t3.micro"
   subnet_id                   = aws_subnet.public.id
   availability_zone           = aws_subnet.public.availability_zone
   associate_public_ip_address = true
