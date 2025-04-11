@@ -175,14 +175,8 @@ duckdb bookstore.ddb
 13. Wykonaj polecenie:
 
 ```python
-CREATE
-OR
-REPLACE
-TABLE
-transactions
-AS
-SELECT * FROM
-read_json_auto('transactions.json');
+CREATE OR REPLACE TABLE transactions AS
+SELECT * FROM read_json_auto('transactions.json');
 ```
 
 14. Zamknij DuckDB za pomocą polecenia `.quit`
@@ -198,7 +192,8 @@ Zwróć uwagę na komunikat:
 Connected to a transient in-memory database.
 ```
 
-16. Podłącz się ponownie do bazy wykonując `.open bookstore.ddb`
+16. Podłącz się ponownie do bazy wykonując `.open bookstore.ddb` i wylistuj dostępne tabele.
+17. Zamknij połączenie z bazą.
 
 ## Lab03
 
@@ -310,7 +305,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
              first_name: varchar
              last_name: varchar
              email: varchar
-             phone: varchar
+             phone_number: varchar
              address: varchar
              city: varchar
              country: varchar
@@ -658,4 +653,168 @@ Gratulacje! Ukończyłeś podstawowe laboratorium `dbt` z DuckDB. Nauczyliście 
 
 ## Lab05
 
+W tej części laboratorium uruchomimy instancję Apache Airflow, korzystając z najprostszej możliwej konfiguracji, czyli
+korzystając z plikowej bazy danych SQLite oraz trybu standalone. Następnie utworzymy DAG umożliwiający uruchomienie 
+procesu przetwarzania danych za pomocą `dbt`.
 
+### Uruchomienie serwera Apache Airflow
+> UWAGA! Zanim przejdziesz do realizacji ćwiczenia przejdź do konsoli AWS i ręcznie usuń wirtualną maszynę. 
+
+1. Serwer Apache Airflow wymaga do pracy większej instancji wirtualnej maszyny oraz otworzyć kolejne porty komunikacyjne, 
+    w związku z czym musimy w pierwszej kolejności zmodyfikować skrypty terraform. W tym celu:
+   * Otwórz plik `ec2.tf` i zmodyfikuj zasób `aws_instance.lab_instance.instance_type` tak, aby przyjął wartość `t3.small` zamiast `t2.micro` lub `t3.micro`.
+   * Zmodyfikuj plik `output.tf` otwierając kolejne porty. Zaktualizuj wartość `vscode-tunnel-cmd`, tak aby tunel udostępniał również port 8080:
+    ```
+    output "vscode-tunnel-cmd" {
+      value = "ssh -N -f -L 8888:localhost:8888 -L 8080:localhost:8080 -i ~/Downloads/kp.pem ec2-user@${aws_instance.lab_instance.public_ip}"
+    }"
+    ```
+   * Zaaplikuj zmiany w infrastrukturze. 
+2. Korzystając z wartości `vscode-tunnel-cmd` zwróconej przez terraform aby uruchomić tunel.
+3. Aby uruchomić serwer Airflow podłącz się do serwera vscode i otwórz terminal, a następnie przejdź do ścieżki 
+`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
+zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i wykonaj polecenie:
+    ```shell
+    ./init.sh
+    ```
+    Podczas jego wykonywania zostaną utworzone ścieżki, skopiowane pliki konfiguracyjne, zainicjalizowana baza danych 
+    oraz wstępnie uruchomiony serwer w trybie standalone. Polecenie to należy wykonać tylko raz! Kolejnym razem aby 
+    uruchomić serwer Airflow należy wykonać polecenie `airflow standalone` z linii poleceń (ścieżka w której zostanie 
+    uruchomiona komenda nie ma znaczenia).
+4. Otwórz nowe okno przeglądarki i przejdź do adresu: `http://localhost:8080`. Logujemy się na konto `admin`. Hasło
+    zostanie wyświetlone podczas uruchamiania serwera, np.: 
+    ```
+    standalone | Airflow is ready
+    standalone | Login with username: admin  password: bYruyCsgq8bHANqc
+    standalone | Airflow Standalone is for development purposes only. Do not use this in production!
+    ```
+    można je również odnaleźć w pliku `airflow/standalone_admin_password.txt`.
+5. Zostanie wyświetlony ekran główny Airflow, w którym dostępny będzie DAG o nazwie `server_health_check_empty`. DAG jest wyłączony, włącz go za pomocą widocznego przełącznika.
+6. Zwróć uwagę, że podczas włączania został on automatycznie uruchomiony. Można go również uruchomić ręcznie klikając w odpowiedni przycisk. Uruchom DAG i kiknij w jego nazwę. Zapoznaj się z interfejsem.
+7. Utwórz nowy plik o nazwie `dbt_run_dag.py` w folderze `airflow/dags` (ścieżka bezwzględna: `/config/workspace/airflow/dags`). Wklej następujący kod:
+    ```python
+    from __future__ import annotations
+    
+    import pendulum
+    import os
+    
+    from airflow.models.dag import DAG
+    from airflow.operators.bash import BashOperator
+    
+    # --- Default Configuration ---
+    # These values are used if not provided in the DAG Run Configuration (`dag_run.conf`)
+    # They are loaded into the DAG's 'params' for easier Jinja access
+    DEFAULT_DBT_PROJECT_DIR = os.getenv('DBT_PROJECT_DIR', '/config/workspace/dbt_bookstore_lab/dbt_project') # !! CHANGE THIS DEFAULT !!
+    DEFAULT_DBT_PROFILES_DIR = os.getenv('DBT_PROFILES_DIR') # Can be None if using default location
+    DEFAULT_DBT_TARGET = os.getenv('DBT_TARGET')           # Can be None if using default from profiles.yml
+    DEFAULT_DBT_MODELS = os.getenv('DBT_MODELS')           # Can be None to run all models
+    DEFAULT_DBT_EXCLUDE = os.getenv('DBT_EXCLUDE')         # Can be None to exclude nothing
+    
+    # Base dbt command flags
+    DBT_BASE_COMMAND = "dbt --no-use-colors --no-write-json"
+    # --- /Default Configuration ---
+    
+    
+    # --- Templated Command Logic using Jinja ---
+    # Access dag_run.conf for runtime parameters, falling back to params (defaults)
+    
+    # Use .get('key', params.default_key) to safely access config with fallback
+    templated_project_dir = "{{ dag_run.conf.get('dbt_project_dir', params.default_project_dir) }}"
+    
+    # Construct optional flags only if values are provided
+    templated_profiles_dir_flag = "{% if dag_run.conf.get('dbt_profiles_dir', params.default_profiles_dir) %} --profiles-dir {{ dag_run.conf.get('dbt_profiles_dir', params.default_profiles_dir) }} {% endif %}"
+    templated_target_flag = "{% if dag_run.conf.get('dbt_target', params.default_target) %} --target {{ dag_run.conf.get('dbt_target', params.default_target) }} {% endif %}"
+    templated_select_flag = "{% if dag_run.conf.get('dbt_models', params.default_models) %} --select {{ dag_run.conf.get('dbt_models', params.default_models) }} {% endif %}"
+    templated_exclude_flag = "{% if dag_run.conf.get('dbt_exclude', params.default_exclude) %} --exclude {{ dag_run.conf.get('dbt_exclude', params.default_exclude) }} {% endif %}"
+    templated_full_refresh_flag = "{% if dag_run.conf.get('dbt_full_refresh', False) %} --full-refresh {% endif %}" # Example for a boolean flag
+    
+    # Build the command parts using the templates
+    bash_command_prefix = f"cd {templated_project_dir} && {DBT_BASE_COMMAND}"
+    # Flags common to most commands
+    common_flags = f"--project-dir {templated_project_dir}{templated_profiles_dir_flag}{templated_target_flag}"
+    # Flags specific to run/test (including model selection)
+    run_test_flags = f"{common_flags}{templated_select_flag}{templated_exclude_flag}"
+    # Flags for seed (potentially including full-refresh)
+    seed_flags = f"{common_flags}{templated_full_refresh_flag}"
+    # --- /Templated Command Logic ---
+    
+    
+    with DAG(
+        dag_id='dbt_dag_run',
+        start_date=pendulum.datetime(2024, 1, 1, tz="UTC"), # Adjust start date as needed
+        schedule=None,  # Set to None for manual trigger with config
+        catchup=False,
+        tags=['dbt', 'elt', 'transform', 'parametrized'],
+        description='Runs dbt workflow using parameters passed via DAG Run Configuration.',
+        # Pass default values into params dictionary for access in Jinja templates
+        params={
+            'default_project_dir': DEFAULT_DBT_PROJECT_DIR,
+            'default_profiles_dir': DEFAULT_DBT_PROFILES_DIR,
+            'default_target': DEFAULT_DBT_TARGET,
+            'default_models': DEFAULT_DBT_MODELS,
+            'default_exclude': DEFAULT_DBT_EXCLUDE,
+        },
+        default_args={
+            'owner': 'airflow',
+        }
+    ) as dag:
+    
+        dbt_seed_task = BashOperator(
+            task_id='dbt_seed',
+            bash_command=f"{bash_command_prefix} seed {seed_flags}",
+            doc_md="Runs `dbt seed`. Accepts `dbt_project_dir`, `dbt_profiles_dir`, `dbt_target`, `dbt_full_refresh` from config.",
+        )
+    
+        dbt_run_task = BashOperator(
+            task_id='dbt_run',
+            bash_command=f"{bash_command_prefix} run {run_test_flags}",
+            doc_md="Runs `dbt run`. Accepts `dbt_project_dir`, `dbt_profiles_dir`, `dbt_target`, `dbt_models`, `dbt_exclude` from config.",
+        )
+    
+        dbt_test_task = BashOperator(
+            task_id='dbt_test',
+            bash_command=f"{bash_command_prefix} test {run_test_flags}",
+            doc_md="Runs `dbt test`. Accepts `dbt_project_dir`, `dbt_profiles_dir`, `dbt_target`, `dbt_models`, `dbt_exclude` from config.",
+        )
+    
+        dbt_docs_generate_task = BashOperator(
+            task_id='dbt_docs_generate',
+            bash_command=f"{bash_command_prefix} docs generate {common_flags}", # Docs usually don't use select/exclude
+            doc_md="Runs `dbt docs generate`. Accepts `dbt_project_dir`, `dbt_profiles_dir`, `dbt_target` from config.",
+        )
+    
+        # --- Define Task Dependencies ---
+        dbt_seed_task >> dbt_run_task >> dbt_test_task >> dbt_docs_generate_task
+    ```
+    Przeanalizuj kod przed uruchomieniem. Następnie sprawdź, czy DAG pojawił się w interfejsie Airflow.
+8. Jeśli DAG się nie pojawił, należy rozwiązać problemy. W tym celu spróbuj:
+   * w przypadku pojawienia się w interfejsie informacji o błędzie przeanalizuj i rozwiąż przyczyny
+   * jeśli w interfejsie nie pojawiła się informacja o błędzie sprawdź, czy DAG został odnaleziony - przejdź do terminalu serwera vscode i uruchom:
+        ```shell
+        airflow dags list-import-errors
+        ```
+        Powinny pojawić się dwa DAGi:
+        ```shell
+        dag_id                                  | fileloc                                          | owners  | is_paused
+        ========================================+==================================================+=========+==========
+        dbt_core_project_processor_parametrized | /config/airflow/dags/dbt_dag_run.py              | airflow | True     
+        server_health_check_empty               | /config/airflow/dags/server_health_check_bash.py | airflow | False    
+        ```
+ 
+   * jeśli `dbt_dag_run` się nie pojawił, a pojawił się komunikat `Failed to load all files. For details, run 'airflow dags list-import-errors'` uruchom:
+        ```shell
+        airflow dags list-import-errors
+        ```
+        a następnie spróbuj rozwiązać błędy.
+   * jeśli DAG został wyświetlony, ale status `is_paused` zwraca wartość `null` i DAG nie jest widoczny, spróbuj wykonać:
+        ```shell
+        airflow dags unpause dbt_dag_run
+        ```
+   * można również spróbować ponownie uruchomić serwer Airflow
+9. Spróbuj uruchomić DAG z domyślnymi parametrami. Dlaczego nie działa?
+10. Aby naprawić problem z brakiem dostępności projektu dbt utwórz link symboliczny:
+   ```shell
+   ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
+   ```
+11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
+12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
