@@ -8,6 +8,7 @@ RUN apt-get update && \
     python3-venv \
     python3-poetry \
     sudo \
+    vim \
     && rm -rf /var/lib/apt/lists/*
 
 # Set the PATH to include Poetry's bin directory

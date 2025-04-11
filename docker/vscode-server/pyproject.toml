@@ -14,6 +14,7 @@ jupyter = "*"
 faker = "*"
 kagglehub = "*"
 argcomplete = "*"
+aws = "*"
 
 [build-system]
 requires = ["poetry-core"]
