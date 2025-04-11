@@ -231,6 +231,16 @@ lab-dbt04/dbt_bookstore_lab/
 └── dbt_project/  <-- Tutaj zainicjujemy projekt dbt
 ```
 
+Przed rozpoczęciem pracy utwórz foldery oraz skopiuj do nich wymagane pliki za pomocą następujących komend:
+```shell
+cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt
+mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+```
+> UWAGA! Nie należy tworzyć folderu `dbt_project` ani pliku `bookstore_dwh.ddb`.
+
 #### Krok 1: Inicjalizacja projektu dbt
 
 1. Przejdź do katalogu `dbt_bookstore_lab` w terminalu.
@@ -247,24 +257,25 @@ lab-dbt04/dbt_bookstore_lab/
 
 `dbt` przechowuje konfiguracje połączeń w pliku `profiles.yml`, domyślnie w `~/.dbt/`.
 
-1. Otwórz lub utwórz plik `~/.dbt/profiles.yml`.
+1. Otwórz lub utwórz plik `~/.dbt/profiles.yml`. W tym celu zalecane jest wykonanie linku symbolicznego do pliku, tak, aby można było uzyskać do niego dostęp z poziomu folderu workspace:
+    ```
+   ln -s ~/.dbt/profiles.yml /config/workspace/
+   ```
 2. Dodaj konfigurację dla DuckDB, wskazując ścieżkę do pliku `bookstore_dwh.ddb`. Pamiętaj, aby użyć **pełnej (absolutnej)
    ścieżki** do pliku `bookstore_dwh.ddb` lub ścieżki względnej *do miejsca, z którego uruchamiasz `dbt`*. Dla uproszczenia
    użyjmy ścieżki względnej zakładając, że `dbt` będzie uruchamiane z katalogu `dbt_bookstore_lab/dbt_project/`:
 
    ```yaml
    # ~/.dbt/profiles.yml
-
-   bookstore_analytics: # Nazwa profilu - musi pasować do 'profile' w dbt_project.yml
-     target: dev
+   dbt_project:
      outputs:
        dev:
          type: duckdb
-         path: ../bookstore_dwh.ddb  # Ścieżka do pliku bazy danych (względna do dbt_project/)
-         # Opcjonalnie: Możesz dodać rozszerzenia DuckDB, np. httpfs
-         # extensions:
-         #   - httpfs
-         #   - parquet
+         path: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data/bookstore_dwh.ddb
+         threads: 2
+   
+     target: dev
+
    ```
 
 3. **Weryfikacja połączenia:** Przejdź do katalogu `dbt_project/` i uruchom:
@@ -280,7 +291,7 @@ lab-dbt04/dbt_bookstore_lab/
 `Seeds` w `dbt` służą do ładowania małych, statycznych zestawów danych (zwykle z plików CSV) bezpośrednio do bazy
 danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 
-1. **Skopiuj plik:** Przenieś plik `customers.csv` z katalogu `data/` do katalogu `dbt_project/seeds/`. 
+1. **Przenieś plik:** Przenieś plik `customers.csv` z katalogu `data/` do katalogu `dbt_project/seeds/`. 
 2. **Uruchom `dbt seed`:** W katalogu `dbt_project/` wykonaj komendę:
 
    ```bash
@@ -291,7 +302,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 
    Podczas ładowania pliku seed wystąpi błąd związany z niepoprawnie rozpoznanymi typami kolumn. Możemy temu zapobiec przez zdefiniowanie "sztywnego" schematu:
    
-   - Utwórz plik konfiguracyjny: W katalogu dbt_project/seeds/ stwórz plik o nazwie np. properties.yml (nazwa pliku YAML w katalogu seeds nie ma większego znaczenia, dbt odczyta wszystkie pliki .yml).
+   - Utwórz plik konfiguracyjny: W katalogu dbt_project/seeds/ stwórz plik o nazwie np. customers.yml (nazwa pliku YAML w katalogu seeds nie ma większego znaczenia, dbt odczyta wszystkie pliki .yml).
 
    - Dodaj konfigurację typów kolumn: Wklej do tego pliku następującą zawartość, dostosowując nazwy kolumn i typy do struktury Twojego pliku customers.csv. Na podstawie fragmentu błędu, zakładam przykładowe nazwy kolumn:
      ```yaml
@@ -344,25 +355,23 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 3. **Zdefiniuj źródło:** Dodaj następującą zawartość do pliku `schema.yml`, definiując tabelę `books` jako źródło:
 
     ```yaml
-    # models/staging/schema.yml
     version: 2
     
     sources:
-     - name: raw_data  # Dowolna nazwa grupy źródeł
-       description: "Źródłowe dane z bazy bookstore.ddb"
-       path: ../data/bookstore.ddb
-       database: bookstore # Opcjonalnie, jeśli baza danych jest inna niż domyślna z profilu
-       schema: bookstore   # Schemat, w którym znajduje się tabela (domyślny w DuckDB)
+      - name: raw_data  # Dowolna nazwa grupy źródeł
+        description: "Źródłowe dane z bazy bookstore.ddb"
+        database: external_db # Opcjonalnie, jeśli baza danych jest inna niż domyślna z profilu
+        schema: main   # Schemat, w którym znajduje się tabela (domyślny w DuckDB)
     
-       tables:
-         - name: books
-           description: "Tabela zawierająca informacje o książkach."
-           # Możesz tutaj dodać testy dla danych źródłowych!
-           # columns:
-           #   - name: book_id
-           #     tests:
-           #       - unique
-           #       - not_null
+        tables:
+          - name: books
+            description: "Tabela zawierająca informacje o książkach."
+            # Możesz tutaj dodać testy dla danych źródłowych!
+            # columns:
+            #   - name: book_id
+            #     tests:
+            #       - unique
+            #       - not_null
     ```
     * `name`: Nazwa logiczna grupy źródeł. 
     * `database`, `schema`: Lokalizacja tabel źródłowych.
@@ -378,11 +387,10 @@ nowe tabele lub widoki w bazie danych.
     ```sql
     -- models/staging/stg_books.sql
     -- Prosty model wybierający wszystkie dane ze źródłowej tabeli books, ujednolicający nazewnictwo kolumn
-    
     select
         index as book_id,
         "Publishing Year" as publishing_year,
-        "Book Name" as book_name,
+        "Book Name" as title,
         "Author" as author,
         language_code,
         "Author_Rating" as author_rating,
@@ -428,11 +436,11 @@ nowe tabele lub widoki w bazie danych.
     * Używamy ścieżki względnej do pliku JSON, zakładając uruchamianie `dbt` z katalogu `dbt_project/`.
     * Dodaliśmy rzutowanie typów dla lepszej struktury danych.
 
-4. **Model zdenormalizowany:** Stwórzmy model łączący dane z modeli stagingowych. Utwórz katalog `marts` w `models` i plik
-   `dbt_project/models/marts/fct_book_transactions.sql`:
+4. **Model zdenormalizowany:** Stwórzmy model łączący dane z modeli stagingowych. Utwórz katalog `fact` w `models` i plik
+   `dbt_project/models/fact/fct_book_transactions.sql`:
 
     ```sql
-    -- models/marts/fct_book_transactions.sql
+    -- models/fact/fct_book_transactions.sql
     -- Model faktów łączący transakcje z klientami i książkami
     
     {{
@@ -658,7 +666,17 @@ korzystając z plikowej bazy danych SQLite oraz trybu standalone. Następnie utw
 procesu przetwarzania danych za pomocą `dbt`.
 
 ### Uruchomienie serwera Apache Airflow
-> UWAGA! Zanim przejdziesz do realizacji ćwiczenia przejdź do konsoli AWS i ręcznie usuń wirtualną maszynę. 
+> UWAGA! Zanim przejdziesz do realizacji ćwiczenia przejdź do konsoli AWS i ręcznie usuń wirtualną maszynę. Zaleca się wcześniejsze wykonanie kopii zapasowej w zasobniku S3.
+
+---
+
+Aby wykonać kopię zapasową można wykonać następujące polecenia:
+```shell
+tar -cvzf /tmp/spdb-bckp-$(date -Iseconds).tar.gz /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze
+aws s3 cp /tmp/spdb-bckp-* s3://<nazwa-twojego-bucketu>/bckp/
+```
+
+---
 
 1. Serwer Apache Airflow wymaga do pracy większej instancji wirtualnej maszyny oraz otworzyć kolejne porty komunikacyjne, 
     w związku z czym musimy w pierwszej kolejności zmodyfikować skrypty terraform. W tym celu:

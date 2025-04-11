@@ -1,0 +1,57 @@
+version: 2
+
+sources:
+  - name: raw_data  # Dowolna nazwa grupy źródeł
+    description: "Źródłowe dane z bazy bookstore.ddb"
+    database: external_db # Opcjonalnie, jeśli baza danych jest inna niż domyślna z profilu
+    schema: main   # Schemat, w którym znajduje się tabela (domyślny w DuckDB)
+
+    tables:
+      - name: books
+        description: "Tabela zawierająca informacje o książkach."
+        # Możesz tutaj dodać testy dla danych źródłowych!
+        # columns:
+        #   - name: book_id
+        #     tests:
+        #       - unique
+        #       - not_null
+
+
+models:
+  - name: stg_books
+    description: "Model stagingowy dla książek."
+    columns:
+      - name: book_id
+        description: "Unikalny identyfikator książki."
+        tests:
+          - unique
+          - not_null
+
+  - name: stg_customers
+    description: "Model stagingowy dla klientów."
+    columns:
+      - name: customer_id
+        description: "Unikalny identyfikator klienta."
+        tests:
+          - unique
+          - not_null
+      - name: email
+        description: "Adres email klienta."
+        tests:
+          - unique # Zakładamy, że email jest unikalny
+
+  - name: stg_transactions
+    description: "Model stagingowy dla transakcji (z pliku JSON)."
+    columns:
+      - name: transaction_id
+        description: "Unikalny identyfikator transakcji."
+        tests:
+          - unique
+          - not_null
+      - name: customer_id
+        tests:
+          - not_null
+          # Test referencyjny - sprawdza czy każdy customer_id istnieje w stg_customers
+          - relationships:
+              to: ref('stg_customers')
+              field: customer_id
