@@ -329,7 +329,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 
 3. **(Opcjonalnie) Inspekcja:** Możesz użyć DuckDB CLI, aby sprawdzić, czy tabela została utworzona:
     ```bash
-    duckdb ../bookstore.ddb # Uruchom z katalogu dbt_project/
+    duckdb ....... # Uruchom z katalogu dbt_project/
     ```
     Wewnątrz DuckDB CLI:
     ```sql
@@ -367,11 +367,11 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
           - name: books
             description: "Tabela zawierająca informacje o książkach."
             # Możesz tutaj dodać testy dla danych źródłowych!
-            # columns:
-            #   - name: book_id
-            #     tests:
-            #       - unique
-            #       - not_null
+            columns:
+              - name: book_id
+                tests:
+                  - unique
+                  - not_null
     ```
     * `name`: Nazwa logiczna grupy źródeł. 
     * `database`, `schema`: Lokalizacja tabel źródłowych.
@@ -809,7 +809,7 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
    * w przypadku pojawienia się w interfejsie informacji o błędzie przeanalizuj i rozwiąż przyczyny
    * jeśli w interfejsie nie pojawiła się informacja o błędzie sprawdź, czy DAG został odnaleziony - przejdź do terminalu serwera vscode i uruchom:
         ```shell
-        airflow dags list-import-errors
+        airflow dags list
         ```
         Powinny pojawić się dwa DAGi:
         ```shell
@@ -832,7 +832,262 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
 9. Spróbuj uruchomić DAG z domyślnymi parametrami. Dlaczego nie działa?
 10. Aby naprawić problem z brakiem dostępności projektu dbt utwórz link symboliczny:
    ```shell
-   ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
+       ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
    ```
 11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
+
+
+## Lab 06
+
+W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony. 
+W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
+Można założyć, że symulacja imituje działanie pobierania danych z API systemu zawierającego nowych użytkowników i ich transakcje.
+
+W tym celu będziemy uruchamiać skrypt, podobnie jak w laboratorium 02, z tym, że wykorzystamy dodatkowe parametry wykonania skryptu generatora, jak w poniższym przykładzie:
+```shell
+python generator.py --generate all --customers-offset 25052000000 --transactions-offset 25052000000 --customers-output /config/workspace/dbt_bookstore_lab/customers-250520.csv --transactions-output /config/workspace/dbt_bookstore_lab/transactions-250520.json --start-date 2025-05-19 --end-date 2025-05-19
+```
+
+Powyższe zapytanie wygeneruje dodatkowe pliki zawierające zarówno dane o nowo zarejestrrowanych klientach, jak i ich transakcjach. Pliki zostaną zapisane do nowego pliku csv/json.
+
+### Tworzenie DAG
+
+Aby wykonać to zadanie utworzymy kolejny DAG. Stwórz nowy plik `daily_data_generator.py` w folderze `/config/workspace/airflow/dags` i wklej do niego poniższy kod:
+```python
+from __future__ import annotations
+
+import pendulum
+import os
+
+from airflow.models.dag import DAG
+from airflow.operators.bash import BashOperator
+from airflow.utils.dates import days_ago
+
+# --- Default Configuration ---
+# Ścieżka do skryptu generatora
+GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/generator.py')
+# Ścieżka do folderu wyjściowego dla dbt_bookstore_lab
+DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
+# Domyślna ścieżka do projektu dbt (używana przez dbt_dag_run)
+DEFAULT_DBT_PROJECT_DIR = os.getenv('DBT_PROJECT_DIR', '/config/workspace/dbt_bookstore_lab/dbt_project')
+
+
+# --- Templated Command Logic using Jinja ---
+# Data wykonania DAGa (execution_date) będzie używana do generowania danych dla konkretnego dnia
+# Format daty dla nazw plików i parametrów skryptu
+templated_date_nodash = "{{ ds_nodash }}" # YYYYMMDD
+templated_date_dash = "{{ ds }}"       # YYYY-MM-DD
+
+# Nazwy plików wyjściowych z datą
+templated_customers_output_file = f"{DBT_BOOKSTORE_LAB_DIR}/customers-{templated_date_nodash}.csv"
+templated_transactions_output_file = f"{DBT_BOOKSTORE_LAB_DIR}/transactions-{templated_date_nodash}.json"
+
+# Offsety - można je uczynić bardziej dynamicznymi, np. na podstawie poprzednich uruchomień lub bazy danych
+# Dla uproszczenia, użyjemy daty jako części offsetu, aby zapewnić unikalność (to proste podejście, w produkcji wymagałoby to lepszego zarządzania)
+templated_offset = "{{ ti.execution_date.strftime('%Y%m%d%H%M%S') }}"
+
+
+# Budowanie komendy generatora
+generate_data_command = (
+    f"python {GENERATOR_SCRIPT_PATH} "
+    f"--generate all "
+    f"--customers-offset {templated_offset} " # Używamy dynamicznego offsetu
+    f"--transactions-offset {templated_offset} " # Używamy dynamicznego offsetu
+    f"--customers-output {templated_customers_output_file} "
+    f"--transactions-output {templated_transactions_output_file} "
+    f"--start-date {templated_date_dash} "
+    f"--end-date {templated_date_dash}"
+)
+
+
+with DAG(
+    dag_id='daily_data_generator',
+    start_date=days_ago(1), # Uruchom od wczoraj
+    schedule='@daily',      # Uruchamiaj codziennie o północy UTC
+    catchup=False,          # Nie uruchamiaj dla przeszłych, nieuruchomionych interwałów
+    tags=['data-generation', 'dbt', 'daily'],
+    description='Generates daily customer and transaction data, then runs the dbt workflow.',
+    default_args={
+        'owner': 'airflow',
+    },
+) as dag:
+
+    generate_daily_data_task = BashOperator(
+        task_id='generate_daily_data',
+        bash_command=generate_data_command,
+        doc_md=(
+            "Generates new customer and transaction data for the DAG's execution date. "
+            "Output files are named with the execution date (e.g., customers-YYYYMMDD.csv)."
+        ),
+    )
+
+
+```
+
+Zwróć uwagę, że po kilku minutach (~2 minuty) po zapisaniu pliku w interfejsie Airflow pojawi się nowy DAG w stanie `Paused'.
+Włącz DAG, który uruchomi się automatycznie.
+
+> UWAGA! Jeśli po włączeniu DAG nie widzisz zmiany statusu oznacza to, że prawdobodobnie funkcja `Auto-refresh` jest wyłączona - włącz ją.
+
+### Weryfikacja wykonania
+
+W celu weryfikacji tego, czy udało się wygenerować pliki przejdź do logów DAGa w Airflow i zweryfikuj, że zostały wygenerowane nowe dane.
+W logach powinny się znajdować wpsy podobne do:
+
+```
+[2025-05-20, 21:55:32 UTC] {subprocess.py:86} INFO - Output:
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Loading books from books.csv...
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: Book file not found at books.csv. Proceeding without specific book details in transactions.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating 100 customers to /config/workspace/dbt_bookstore_lab/customers-20250519.csv...
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Customer data saved successfully to '/config/workspace/dbt_bookstore_lab/customers-20250519.csv'.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating transactions from 2025-05-19 to 2025-05-19 into /config/workspace/dbt_bookstore_lab/transactions-20250519.json...
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: No book data loaded. Transactions will not have valid 'book_id' values.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Transaction data saved successfully to '/config/workspace/dbt_bookstore_lab/transactions-20250519.json'. Total transactions generated: 24
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - 
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Data generation process finished.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:97} INFO - Command exited with return code 0
+```
+
+> PYTANIE: Co stanie się, jeśli wykonasz operację `Clear state`?
+
+> PYTANIE: Dlaczego w logach data generacji transakcji uzupełniona jest datą z dnia poprzedniego?
+
+Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upewnić się, czy pliki rzeczywiście pojawiły się w folderze docelowym - w tym celu dodajmy kolejny task w naszym DAG:
+
+```python
+    verify_files_exist_task = BashOperator(
+        task_id='verify_generated_files_exist',
+        bash_command=(
+            f"echo 'Verifying existence of generated files...' && "
+            f"ls -l {templated_customers_output_file} && "
+            f"ls -l {templated_transactions_output_file} && "
+            f"echo 'Generated files found.'"
+        ),
+        doc_md=(
+            "Verifies that the customer and transaction files for the execution date have been generated "
+            "in the target directory. The task will fail if `ls` returns an error (e.g., file not found)."
+        ),
+    )
+
+    generate_daily_data_task >> verify_files_exist_task
+```
+
+### Przesyłanie danych do S3
+
+W inżynierii danych bardzo często spotykanym rozwiązaniem jest wykorzystywanie koncepcji data lake oraz umieszczania danych w kontenerach takich, jak s3, często korzystając z partycjonowania hive.
+Dodajmy więc kolejne taski (po jednym dla każdego z plików `customers` i `transactions`), które przeniosą wygenerowane pliki do wcześniej utworzonego bucketu S3, tak, aby znalazły się w ścieżce: 
+
+```
+s3://<nazwa_bucketu>/data-lake/raw-data/<rodzaj-pliku>/date=<data-generacji>/<nazwa-pliku>
+```
+
+gdzie `<rodzaj-pliku>` to odpowiednio `customers` lub `transactions`, `<data-generacji>` pobierana jest ze zmiennej `templated_date_dash`, a `<nazwa-bucketu>` jest pobierana ze zmiennej globalnej `S3_bucket_name` zdefiniowanej w interfejsie Airflow.
+
+Do aktualnego DAGa dodaj następujące fragmenty:
+- w sekcji importów:
+    ```python
+    from airflow.models import Variable # Dodaj ten import na początku pliku DAGa
+    ```
+- w sekcji konfiguracji, przed definicją DAG:
+    ```python
+        # --- S3 Upload Configuration ---
+        # Pobieranie nazwy bucketa S3 z Airflow Variables
+        # Pierwszy argument to nazwa zmiennej w Airflow UI,
+        # drugi to opcjonalna wartość domyślna, jeśli zmienna nie istnieje.
+        S3_BUCKET_NAME = Variable.get("S3_bucket_name") # Upewnij się, że nazwa zmiennej ("S3_bucket_name") jest taka sama jak w Airflow UI
+    
+        # Ścieżki docelowe w S3
+        s3_customers_target_path = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
+        s3_transactions_target_path = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
+    
+        # Komendy AWS CLI do kopiowania plików
+        upload_customers_to_s3_command = f"aws s3 cp {templated_customers_output_file} {s3_customers_target_path}"
+        upload_transactions_to_s3_command = f"aws s3 cp {templated_transactions_output_file} {s3_transactions_target_path}"
+    ```
+- wewnątrz definicji DAG:
+    ```python
+        # --- Define S3 Upload Tasks ---
+        upload_customers_to_s3_task = BashOperator(
+            task_id='upload_customers_to_s3',
+            bash_command=upload_customers_to_s3_command,
+            doc_md=(
+                f"Uploads the generated customers CSV file to S3: {s3_customers_target_path}. "
+                "Requires AWS CLI to be configured and have necessary S3 write permissions."
+            ),
+        )
+    
+        upload_transactions_to_s3_task = BashOperator(
+            task_id='upload_transactions_to_s3',
+            bash_command=upload_transactions_to_s3_command,
+            doc_md=(
+                f"Uploads the generated transactions JSON file to S3: {s3_transactions_target_path}. "
+                "Requires AWS CLI to be configured and have necessary S3 write permissions."
+            ),
+        )
+    ```
+- w sekcji zależności dodaj:
+    ```python
+        # --- Update Task Dependencies ---
+        # Zakładając, że poprzednie taski to generate_daily_data_task i verify_files_exist_task
+        # Nowe taski S3 powinny być uruchamiane po weryfikacji istnienia plików.
+        verify_files_exist_task >> [upload_customers_to_s3_task, upload_transactions_to_s3_task]
+    ```
+
+### Ustawienie zmiennych
+
+Powyższy DAG nie będzie mógł być prawidłowo sparsowany, ponieważ nie istnieje zmienna globalna `S3_bucket_name`, widoczny będzie błąd:
+
+```
+Broken DAG: [/config/airflow/dags/daily_data_generator.py]
+Traceback (most recent call last):
+  File "/config/airflow/dags/daily_data_generator.py", line 51, in <module>
+    S3_BUCKET_NAME = Variable.get("S3_bucket_name") # Upewnij się, że nazwa zmiennej ("S3_bucket_name") jest taka sama jak w Airflow UI
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/app/venv/lib/python3.12/site-packages/airflow/models/variable.py", line 143, in get
+    raise KeyError(f"Variable {key} does not exist")
+KeyError: 'Variable S3_bucket_name does not exist'
+```
+
+Aby usunąć ten błąd należy utworzyć zmienną `S3_bucket_name` w menu `Admin -> Variables`. W polu `Val` umieść nazwę publicznego bucketu, który utowrzyliśmy we wcześniejszych laboratoriach.
+
+#### Konfiguracja dostępu do AWS
+
+Po uruchomieniu zadania `upload_customers_to_s3` i `upload_transactions_to_s3` zakończą się błędem. 
+Jest to spowodowane konfiguracją konta AWS, które wymaga każdorazowo aktualizacji `~/.aws/credentials` - przejdż do konsoli w VSCode serwerze i zaktualizj plik `credentials`.
+
+#### Weryfikacja ładowania plików do S3
+
+Otwórz konsolę AWS i przejdź do zakładki S3, nasteępnie do bucketu, którego nazwa została podana w zmiennej `S3_bucket_name` i zweryfikuj, czy pliki zostały załadowane.
+
+### Cathup & Backfilling
+
+#### Catchup
+Airflow umożliwia również załadowanie danych historycznych. Nasz DAG nadaje się świetnie do załadowania historii za pomocą backfillingu.
+Aby załadować dane z poprzednich 7 dni zaktualizujmy wartość `start_date=days_ago(7)` zamiast aktualnego `start_date=days_ago(7)`.
+
+Zauważmy, że po zmianie tej wartości nic się nie wydarzyło. Spróbujmy zatem zaktualizować więc kolejną zmienną konfiguracyjną `catchup=True` zamiast `catchup=False`. 
+
+Efekt? Znów nie zadziałało.
+
+#### Usunięcie informacji o DAG
+
+Aby zaprezentować jak działa opcja `catchup` usuniemy informacje o wszystkich dotychczasowych egzekucjach DAGa `daily_data_generator`. W tym celu użyjemy czerwonej ikony 'śmietnika' opisanej `Delete DAG`.
+
+Zwróć uwagę, że po kliknięciu `Delete DAG`, tak naprawdę nie suwamy DAGa, ale informacje o jego wcześniejszych wykonaniach. 
+Definicja DAG wciąż znajduje się w pliku `/config/airflow/dags/daily_data_generator.py` i DAG będzie pojawiał się w interfejsie Airflow dopóki jej stamtąd nie usuniemy.
+
+Natomiast ważne jest to, że po kliknięciu `Delete DAG` wszedł on ponownie w status `Paused`. Włączmy go ponownie. Po uruchomieniu funkcja `cathup` uzupełni brakujące wykonania DAGa dla okresu ostatnich 7 dni, tak jak zdefiniowano w parametrze `start_date`.
+
+#### Backfilling
+
+Niezależnie od funkcji `cathup` możemy również skorzystać z opcji `backfilling`, która umożliwia nam załadowanie brakujących danych za dowolny okres, nawet taki, który wykracza poza granicę `start_date`. 
+Jednak funkcja backfilling jest dostępna jedynie jako komenda CLI:
+
+```shell
+airflow dags backfill \
+    --start-date YYYY-MM-DD \
+    --end-date YYYY-MM-DD \
+    daily_data_generator
+```
+ czyli w naszym przypadku wykonajmy ładowanie za ostatnie 14 dni
