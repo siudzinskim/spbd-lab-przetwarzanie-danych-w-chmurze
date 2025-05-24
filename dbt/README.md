@@ -1090,4 +1090,102 @@ airflow dags backfill \
     --end-date YYYY-MM-DD \
     daily_data_generator
 ```
- czyli w naszym przypadku wykonajmy ładowanie za ostatnie 14 dni
+ czyli w naszym przypadku wykonajmy ładowanie za ostatnie 3 dni poprzedzające okres, który już został załadowany (przykładowo jeśli dziś przypada 11 stycznia, korzystając z funkcji catchup załadowaliśmy dane za okres 4-9 stycznia, zatem 3 poprzedzające dni oznaczają 1-3 stycznia).
+
+#### Generowanie transakcji dla istniejących (nie nowych) użytkowników
+
+Dodajmy dodatkowe bloki, które z istniejących danych wygenerują plik csv zawierający listę wszystkich użytkowników, 
+następnie wygenerują transakcje za dany okres dla istniejących wcześniej użytkowników. W tym celu musimy wykonać kilka kroków,
+które dodamy z wykorzystaniem notacji `taskflow`. Na końcu pliku definiującego DAG dodaj:
+
+```python
+    from airflow.decorators import task
+    import duckdb
+    # --- Update Task Dependencies ---
+    # Zakładając, że poprzednie taski to generate_daily_data_task i verify_files_exist_task
+    # Nowe taski S3 powinny być uruchamiane po weryfikacji istnienia plików.
+    verify_files_exist_task >> [upload_customers_to_s3_task, upload_transactions_to_s3_task]
+
+    # Konfiguracja ścieżek S3 (zastąp swoimi danymi)
+    s3_endpoint = f"s3://{S3_BUCKET_NAME}/"
+    s3_region = "eu-central-1"  # Zmień na swój region AWS (opcjonalnie)
+
+    # Ścieżka do partycjonowanych plików CSV w S3 (przykład)
+    s3_path_pattern = f"{s3_endpoint}data-lake/raw-data/customers/date=*/*.csv"
+
+    # Ścieżka do lokalnego pliku wyjściowego
+    local_output_file = "/tmp/all_customers.csv"
+
+    @task
+    def read_s3_hive_and_export():
+        # Konfiguracja dostępu do S3
+        con = duckdb.connect(database=':memory:', read_only=False)
+        con.sql(f"INSTALL httpfs;")
+        con.sql(f"LOAD httpfs;")
+        con.sql(f"""CREATE OR REPLACE SECRET secret (TYPE s3, PROVIDER credential_chain, CHAIN config, PROFILE 'default');""")
+
+        # Odczyt partycjonowanych plików CSV z S3 z uwzględnieniem partycjonowania Hive
+        query = f"""
+        COPY (SELECT * FROM read_csv_auto('{s3_path_pattern}', hive_partitioning=TRUE))
+        TO '{local_output_file}' (HEADER, DELIMITER ',');
+        """
+        con.sql(query)
+        print(f"Dane klientów zostały wyeksportowane do: {local_output_file}")
+        con.close()
+
+    export_task = read_s3_hive_and_export()
+
+    # Budowanie komendy generatora
+    templated_offset_2 = "{{ ti.execution_date.strftime('%Y%m%d30%M%S') }}"
+    templated_transactions_output_file_2 = f"{DBT_BOOKSTORE_LAB_DIR}/transactions-existing-{templated_date_nodash}.json"
+    generate_data_command_existing_customers = (
+        f"python {GENERATOR_SCRIPT_PATH} "
+        f"--generate transactions "
+        f"--customers-input {local_output_file} " # Używamy dynamicznego offsetu
+        f"--transactions-offset {templated_offset_2} " # Używamy dynamicznego offsetu
+        f"--transactions-output {templated_transactions_output_file_2} "
+        f"--start-date {templated_date_dash} "
+        f"--end-date {templated_date_dash}"
+    )
+
+    @task.bash
+    def generate_transactions_for_existing_customers() -> str:
+        return generate_data_command_existing_customers
+
+    transactions_for_existing_customers = generate_transactions_for_existing_customers()
+
+    s3_transactions_target_path_2 = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-existing-{templated_date_nodash}.json"
+    upload_transactions_to_s3_command = f"aws s3 cp {templated_transactions_output_file_2} {s3_transactions_target_path_2}"
+
+    @task.bash
+    def uploading_transactions_to_s3() -> str:
+        return upload_transactions_to_s3_command
+
+    upload_transactions_to_s3 = uploading_transactions_to_s3()
+
+    generate_daily_data_task >> export_task >> transactions_for_existing_customers >> upload_transactions_to_s3
+```
+
+#### Analiza danych z wykorzystaniem AWS Athena
+
+Na koniec zweryfikujemy możliwość analizy danych za pomocą usługi AWS Athena.
+ 
+### Zadania dodatkowe:
+1. Korzystając z dbt utwórz modele w donwstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.
+2. Wykorzystaj materializację `incremental`, która będzie ładowała do 'hurtowni danych' wyłącznie nowe rekordy.
+3. Zaproponuj dodatkowe pola techniczne zawierające np. informacje o dacie ładowania, pliku źródłowym, ostatniej aktualizaji itp. i zaimplementuj je w modelu
+
+## Usunięcie kosztownych zasobów
+
+Większość zasobów, z których korzystamy podczas laboratorium generuje pomijalne lub zerowe koszty, jednak wirtualna maszyna 
+generuje istotne dla dostępnego w ramach laboratorium limitu koszty. W celu usunięcia tylko wirtualnej maszyny możliwe jest 
+usunięcie celowanego zasobu oraz zasobów od niego zależnych. W tym celu uruchom:
+
+```shell
+terraform destroy -target=aws_instance.lab_instance
+```
+
+airflow dags backfill \
+    --start-date 2025-05-20 \
+    --end-date 2025-05-22 \
+    daily_data_generator
