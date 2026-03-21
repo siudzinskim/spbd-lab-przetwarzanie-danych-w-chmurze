@@ -35,6 +35,7 @@ microk8s status --wait-ready
 sleep 15
 microk8s.enable dashboard
 microk8s.enable ingress
+microk8s.enable storage
 
 # 3. Wygenerowanie i wysłanie kubeconfig
 TEMP_CONFIG_PATH="/tmp/kubeconfig"
@@ -49,7 +50,23 @@ fi
 # 4. Wysłanie configu do Bucket
 if [ -s "$TEMP_CONFIG_PATH" ]; then
   BUCKET_NAME=$1
+  echo "Wysyłanie kubeconfig do bucketu: ${BUCKET_NAME}"
   gsutil cp $TEMP_CONFIG_PATH "gs://${BUCKET_NAME}/kubeconfig"
+
+  # Generowanie i wysyłanie tokena do dashboardu
+  echo "Generowanie tokena do dashboardu..."
+  # Czekamy chwilę, aż dashboard i jego service account będą gotowe
+  sleep 10
+  TOKEN_PATH="/tmp/dashboard_token.txt"
+  microk8s kubectl create token default -n kubernetes-dashboard --duration=14400s > $TOKEN_PATH
+  
+  if [ -s "$TOKEN_PATH" ]; then
+    echo "Wysyłanie tokena do bucketu: ${BUCKET_NAME}"
+    gsutil cp $TOKEN_PATH "gs://${BUCKET_NAME}/dashboard_token.txt"
+  else
+    echo "Plik tokena był pusty lub nie został utworzony." >> /tmp/startup-script-error.log
+  fi
+
 else
   echo "Plik konfiguracyjny MicroK8s był pusty lub nie został utworzony." > /tmp/startup-script-error.log
 fi
