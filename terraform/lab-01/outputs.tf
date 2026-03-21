@@ -12,3 +12,13 @@ output "ssh_command" {
   description = "Rekomendowana komenda do połączenia się z maszyną przez SSH"
   value       = "gcloud compute ssh --project ${var.project_id} --zone ${var.zone} ${google_compute_instance.k8s_node.name}"
 }
+
+output "kubeconfig_path" {
+  description = "Rekomendowana komenda do skopiowania konfiguracji k8s"
+  value       = "gs://${google_storage_bucket.config_bucket.name}/kubeconfig"
+}
+
+output "kubeconfig_copy_command" {
+  description = "Rekomendowana komenda do skopiowania konfiguracji k8s"
+  value       = "mkdir -p ~/.kube/ && gsutil cp gs://${google_storage_bucket.config_bucket.name}/kubeconfig ~/.kube/config"
+}
