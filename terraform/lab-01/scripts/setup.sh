@@ -4,25 +4,33 @@ apt-get install -y snapd at curl
 
 # 2. Instalacja i konfiguracja certyfikatu MicroK8s
 snap install microk8s --classic
-microk8s stop # Zatrzymaj, aby bezpiecznie zmodyfikować konfigurację certyfikatu przed pierwszym startem
-
+# 3. Konfiguracja sieci i certyfikatów MicroK8s
+echo "Rozpoczynanie konfiguracji sieci i certyfikatów..."
 PUBLIC_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
+CERT_CONFIG_FILE="/var/snap/microk8s/current/certs/csr.conf.template"
+API_SERVER_ARGS="/var/snap/microk8s/current/args/kube-apiserver"
 
+# Zawsze modyfikuj argumenty api-server, aby nasłuchiwał na zewnątrz
+if ! grep -q "bind-address=0.0.0.0" "$API_SERVER_ARGS"; then
+  echo "--bind-address=0.0.0.0" >> "$API_SERVER_ARGS"
+fi
+
+# Zawsze modyfikuj szablon certyfikatu o aktualny IP
 if [ -n "$PUBLIC_IP" ]; then
-  # Upewnij się, że plik jest w poprawnym stanie, usuwając stare wpisy IP.100
-  # Używamy /^IP\\.100 =/d aby precyzyjnie namierzyć linię do usunięcia
-  sed -i "/^IP\\.100 =/d" /var/snap/microk8s/current/certs/csr.conf.template
-  # Użyj placeholdera #MOREIPS, aby wstawić aktualny adres IP we właściwym miejscu
-  sed -i "s|#MOREIPS|IP.100 = $PUBLIC_IP\n#MOREIPS|" /var/snap/microk8s/current/certs/csr.conf.template
+  sed -i "/^IP\\.100 =/d" "$CERT_CONFIG_FILE"
+  sed -i "s|#MOREIPS|IP.100 = $PUBLIC_IP\n#MOREIPS|" "$CERT_CONFIG_FILE"
 fi
 
-# Zmodyfikuj konfigurację api-server, aby nasłuchiwał na wszystkich interfejsach
-if ! grep -q "bind-address=0.0.0.0" /var/snap/microk8s/current/args/kube-apiserver; then
-  echo "--bind-address=0.0.0.0" >> /var/snap/microk8s/current/args/kube-apiserver
-fi
+# Zawsze odświeżaj certyfikat serwera i restartuj usługi
+echo "Zatrzymywanie MicroK8s w celu odświeżenia certyfikatów..."
+microk8s stop
+echo "Odświeżanie certyfikatu serwera z nowym IP: $PUBLIC_IP"
+microk8s refresh-certs --cert server.crt
 
-# Uruchom ponownie, aby wygenerować certyfikaty z nową konfiguracją i poczekaj na gotowość
+echo "Uruchamianie MicroK8s..."
 microk8s start
+
+echo "Czekam na gotowość klastra po restarcie..."
 microk8s status --wait-ready
 sleep 15
 
@@ -31,11 +39,9 @@ TEMP_CONFIG_PATH="/tmp/kubeconfig"
 microk8s config > $TEMP_CONFIG_PATH
 
 # Po restarcie, config może nadal zawierać stary IP.
-# Dla pewności, podmieniamy adres wewnętrzny i localhost na publiczny.
+# Dla pewności, podmieniamy adres serwera na publiczny IP.
 if [ -n "$PUBLIC_IP" ]; then
-  INTERNAL_IP=$(hostname -I | awk '{print $1}')
-  sed -i "s/$INTERNAL_IP/$PUBLIC_IP/g" $TEMP_CONFIG_PATH
-  sed -i "s/127.0.0.1/$PUBLIC_IP/g" $TEMP_CONFIG_PATH
+  sed -i -E "s/server: https:\/\/[^:]+/server: https:\/\/$PUBLIC_IP/" "$TEMP_CONFIG_PATH"
 fi
 
 # 4. Wysłanie configu do Bucket
