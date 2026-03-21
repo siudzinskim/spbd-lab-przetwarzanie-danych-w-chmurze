@@ -33,6 +33,8 @@ microk8s start
 echo "Czekam na gotowość klastra po restarcie..."
 microk8s status --wait-ready
 sleep 15
+microk8s.enable dashboard
+microk8s.enable ingress
 
 # 3. Wygenerowanie i wysłanie kubeconfig
 TEMP_CONFIG_PATH="/tmp/kubeconfig"
