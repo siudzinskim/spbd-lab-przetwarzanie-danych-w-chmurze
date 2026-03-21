@@ -20,7 +20,7 @@ scheduler:
   extraVolumes:
     - name: dags
       hostPath:
-        path: ${REPO_PATH}/dags/
+        path: /opt/airflow/dags/
         type: Directory
   extraVolumeMounts:
     - name: dags
@@ -31,7 +31,7 @@ dagProcessor:
   extraVolumes:
     - name: dags
       hostPath:
-        path: ${REPO_PATH}/dags/
+        path: /opt/airflow/dags/
         type: Directory
   extraVolumeMounts:
     - name: dags
@@ -49,11 +49,11 @@ workers:
   extraVolumes:
     - name: dags
       hostPath:
-        path: ${REPO_PATH}/dags
+        path: /opt/airflow/dags
         type: Directory
     - name: data
       hostPath:
-        path: ${REPO_PATH}/data
+        path: /opt/airflow/data
         type: Directory
   extraVolumeMounts:
     - name: dags
@@ -76,7 +76,7 @@ apiServer:
   extraVolumes:
     - name: dags
       hostPath:
-        path: ${REPO_PATH}/dags/
+        path: /opt/airflow/dags/
         type: Directory
   extraVolumeMounts:
     - name: dags
