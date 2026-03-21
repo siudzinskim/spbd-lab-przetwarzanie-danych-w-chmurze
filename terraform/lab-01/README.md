@@ -41,7 +41,8 @@ Należy utworzyć zasób google\_storage\_bucket. Będzie on służył jako repo
 
 Studenci tworzą zasób google\_compute\_instance.
 
-*   **Typ maszyny:** e2-micro (najmniejsza dostępna, zgodna z wymaganiem oszczędności).
+*   **Typ maszyny:** e2-small (zapewnia stabilność dla MicroK8s).
+    *   *Uwaga: `e2-micro` (1GB RAM) jest zbyt mały, aby niezawodnie uruchomić usługi Kubernetes i może prowadzić do błędów, jak ten z `containerd`.*
 *   **Obraz:** Ubuntu Minimal (lekki system pod k8s).
 *   **Startup Script:** W argumencie metadata\_startup\_script należy wstrzyknąć treść skryptu instalacyjnego przy użyciu funkcji file().
 
@@ -166,7 +167,7 @@ variable "zone" {
 variable "instance_type" {
   description = "Typ maszyny wirtualnej"
   type        = string
-  default     = "e2-micro" # Bardzo tania opcja
+  default     = "e2-small" # e2-micro (1GB RAM) jest niestabilny dla MicroK8s
 }
 ```
 
@@ -316,6 +317,7 @@ output "ssh_command" {
 4.  **Wdrożenie:** Wykonaj `terraform apply`. Poczekaj ok. 3-5 minut (tyle zajmuje instalacja MicroK8s przez snap).
 5.  **Weryfikacja:**
     *   Zaloguj się do konsoli GCP Storage i sprawdź, czy w Twoim buckecie pojawił się plik `kubeconfig`.
-    *   Zaloguj się przez SSH do maszyny i wpisz `sudo microk8s kubectl get nodes`.
+    *   Po zakończeniu `terraform apply`, użyj polecenia wyświetlonego w `output "ssh_command"`, aby zalogować się do maszyny. Jest to **rekomendowana metoda**, ponieważ wykorzystuje mechanizmy IAM Google Cloud do bezpiecznego i automatycznego zarządzania kluczami.
+    *   Po zalogowaniu, sprawdź status klastra: `sudo microk8s kubectl get nodes`.
     *   Sprawdź listę zaplanowanych zadań komendą `atq` – powinieneś zobaczyć zaplanowany shutdown.
 6.  **Sprzątanie:** Na koniec zajęć wykonaj `terraform destroy`, aby usunąć wszystkie zasoby jednym poleceniem.

@@ -9,5 +9,6 @@ output "bucket_name" {
 }
 
 output "ssh_command" {
-  value = "ssh ubuntu@${google_compute_instance.k8s_node.network_interface[0].access_config[0].nat_ip}"
+  description = "Rekomendowana komenda do połączenia się z maszyną przez SSH"
+  value       = "gcloud compute ssh --project ${var.project_id} --zone ${var.zone} ${google_compute_instance.k8s_node.name}"
 }
