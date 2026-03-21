@@ -35,7 +35,12 @@ microk8s status --wait-ready
 sleep 15
 microk8s.enable dashboard
 microk8s.enable ingress
-microk8s.enable storage
+
+# Tworzenie katalogów dla DAG-ów i danych Airflow
+mkdir -p /opt/airflow/dags
+mkdir -p /opt/airflow/data
+chmod -R 777 /opt/airflow/dags # Nadanie pełnych uprawnień dla poda
+chmod -R 777 /opt/airflow/data # Nadanie pełnych uprawnień dla poda
 
 # 3. Wygenerowanie i wysłanie kubeconfig
 TEMP_CONFIG_PATH="/tmp/kubeconfig"

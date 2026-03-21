@@ -6,8 +6,8 @@ redis:
 # enable embeded PostgreSQL
 postgresql:
   enabled: true
-  image:
-    tag: 11.22.0 # Użycie konkretnego, istniejącego tagu, aby uniknąć błędu ErrImagePull
+webserver:
+  enabled: true
 createUserJob:
   useHelmHooks: false
   applyCustomEnv: false
@@ -17,6 +17,11 @@ migrateDatabaseJob:
   applyCustomEnv: false
 
 scheduler:
+  startupProbe:
+    initialDelaySeconds: 120
+    periodSeconds: 10
+    failureThreshold: 6
+    timeoutSeconds: 120
   extraVolumes:
     - name: dags
       hostPath:
@@ -39,7 +44,7 @@ dagProcessor:
       readOnly: true
 
 workers:
-#  env:
+  env:
 #    - name: AIRFLOW_CONN_HTTP_DUMMYJSON
 #      value: '{"conn_type": "http_dummyjson","host": "https://dummyjson.com","conn_type": "http"}'
 #    - name: AIRFLOW_CONN_FS_DEFAULT
@@ -73,6 +78,11 @@ airflow:
       conn_type: fs
 
 apiServer:
+  startupProbe:
+    initialDelaySeconds: 300
+    periodSeconds: 10
+    failureThreshold: 6
+    timeoutSeconds: 300
   extraVolumes:
     - name: dags
       hostPath:
@@ -83,13 +93,3 @@ apiServer:
       mountPath: /opt/airflow/dags
       readOnly: true
 
-global:
-  env:
-    - name: _PIP_ADDITIONAL_REQUIREMENTS
-      value: "duckdb faker"
-    - name: AIRFLOW__API__AUTH_BACKENDS
-      value: 'airflow.api.auth.backend.basic_auth'
-    - name: AIRFLOW_CONN_HTTP_DUMMYJSON
-      value: '{"conn_type": "http_dummyjson","host": "https://dummyjson.com","conn_type": "http"}'
-    - name: AIRFLOW_CONN_FS_DEFAULT
-      value: '{"conn_type": "fs_default","conn_type": "fs"}'

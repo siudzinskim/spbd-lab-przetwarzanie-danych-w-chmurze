@@ -18,5 +18,5 @@ variable "zone" {
 variable "instance_type" {
   description = "Typ maszyny wirtualnej"
   type        = string
-  default     = "e2-medium" # e2-small (2GB RAM) okazał się niewystarczający
+  default     = "e2-standard-2" # e2-small (2GB RAM) okazał się niewystarczający
 }

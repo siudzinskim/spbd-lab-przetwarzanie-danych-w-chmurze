@@ -4,10 +4,10 @@ metadata:
   name: airflow-ingress
   namespace: airflow # Namespace, w którym zainstalowany jest Airflow
   annotations:
-    # Ta adnotacja jest często wymagana dla Ingressów w MicroK8s
-    nginx.ingress.kubernetes.io/rewrite-target: /
+    # Kong Proxy domyślnie nasłuchuje na HTTP
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTP"
 spec:
-  ingressClassName: public # Używamy tej samej klasy co dla dashboardu
+  ingressClassName: nginx # Używamy tej samej klasy co dla dashboardu
   rules:
   - http:
       paths:
@@ -16,7 +16,7 @@ spec:
         backend:
           service:
             # Domyślna nazwa usługi dla webserwera w charcie Airflow
-            name: airflow-webserver
+            name: airflow-api-server
             port:
               # Domyślny port usługi webserwera
               number: 8080

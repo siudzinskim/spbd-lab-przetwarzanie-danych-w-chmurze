@@ -4,12 +4,25 @@ provider "google" {
   region  = var.region
 }
 
+# Pobranie zawartości pliku kubeconfig z GCS
+# Nazwa bucketu jest pobierana z zmiennej wejściowej
+data "google_storage_bucket_object_content" "kubeconfig" {
+  bucket = "${var.project_id}-k8s-config"
+  name   = "kubeconfig"
+}
+
+# Pobranie zawartości pliku z tokenem do dashboardu
+data "google_storage_bucket_object_content" "dashboard_token" {
+  bucket = "${var.project_id}-k8s-config"
+  name   = "dashboard_token.txt"
+}
+
 # Zapisanie pobranej zawartości kubeconfig do tymczasowego pliku w folderze .tmp
 # Provider kubectl będzie używał tego pliku do uwierzytelnienia.
 # Użycie nazwy bucketa w nazwie pliku zapewnia unikalność.
 resource "local_file" "kubeconfig" {
   content  = data.google_storage_bucket_object_content.kubeconfig.content
-  filename = "${path.module}/.tmp/kubeconfig_${data.terraform_remote_state.lab_01.outputs.bucket_name}.tmp"
+  filename = "${path.module}/.tmp/kubeconfig_${var.project_id}-k8s-config.tmp"
 }
 
 # Konfiguracja providera kubectl, który pozwala na aplikowanie manifestów YAML.
