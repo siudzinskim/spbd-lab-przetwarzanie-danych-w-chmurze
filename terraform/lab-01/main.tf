@@ -89,4 +89,7 @@ resource "google_compute_instance" "k8s_node" {
   service_account {
     scopes = ["https://www.googleapis.com/auth/devstorage.read_write", "cloud-platform"]
   }
+
+  desired_status = "RUNNING"
+
 }

@@ -1,6 +1,7 @@
 output "public_ip" {
   value       = google_compute_instance.k8s_node.network_interface[0].access_config[0].nat_ip
   description = "Publiczny adres IP maszyny"
+  depends_on  = [google_compute_instance.k8s_node]
 }
 
 output "bucket_name" {
