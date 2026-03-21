@@ -1,0 +1,22 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: airflow-ingress
+  namespace: airflow # Namespace, w którym zainstalowany jest Airflow
+  annotations:
+    # Ta adnotacja jest często wymagana dla Ingressów w MicroK8s
+    nginx.ingress.kubernetes.io/rewrite-target: /
+spec:
+  ingressClassName: public # Używamy tej samej klasy co dla dashboardu
+  rules:
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            # Domyślna nazwa usługi dla webserwera w charcie Airflow
+            name: airflow-webserver
+            port:
+              # Domyślny port usługi webserwera
+              number: 8080

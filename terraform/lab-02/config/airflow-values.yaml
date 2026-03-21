@@ -1,0 +1,95 @@
+# Użycie lżejszego executora i wyłączenie Redisa
+executor: KubernetesExecutor
+redis:
+  enabled: false
+
+# enable embeded PostgreSQL
+postgresql:
+  enabled: true
+  image:
+    tag: 11.22.0 # Użycie konkretnego, istniejącego tagu, aby uniknąć błędu ErrImagePull
+createUserJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+migrateDatabaseJob:
+  useHelmHooks: false
+  applyCustomEnv: false
+
+scheduler:
+  extraVolumes:
+    - name: dags
+      hostPath:
+        path: /opt/airflow/dags/
+        type: Directory
+  extraVolumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags
+      readOnly: true
+
+dagProcessor:
+  extraVolumes:
+    - name: dags
+      hostPath:
+        path: /opt/airflow/dags/
+        type: Directory
+  extraVolumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags
+      readOnly: true
+
+workers:
+#  env:
+#    - name: AIRFLOW_CONN_HTTP_DUMMYJSON
+#      value: '{"conn_type": "http_dummyjson","host": "https://dummyjson.com","conn_type": "http"}'
+#    - name: AIRFLOW_CONN_FS_DEFAULT
+#      value: '{"conn_type": "fs_default","conn_type": "fs"}'
+#    - name: _PIP_ADDITIONAL_REQUIREMENTS
+#      value: "duckdb faker"
+  extraVolumes:
+    - name: dags
+      hostPath:
+        path: /opt/airflow/dags
+        type: Directory
+    - name: data
+      hostPath:
+        path: /opt/airflow/data
+        type: Directory
+  extraVolumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags
+      readOnly: true
+    - name: data
+      mountPath: /opt/airflow/data
+      readOnly: false
+
+airflow:
+  connections:
+    - conn_id: http_dummyjson
+      conn_type: http
+      host: https://dummyjson.com/
+
+    - conn_id: local_fs
+      conn_type: fs
+
+apiServer:
+  extraVolumes:
+    - name: dags
+      hostPath:
+        path: /opt/airflow/dags/
+        type: Directory
+  extraVolumeMounts:
+    - name: dags
+      mountPath: /opt/airflow/dags
+      readOnly: true
+
+global:
+  env:
+    - name: _PIP_ADDITIONAL_REQUIREMENTS
+      value: "duckdb faker"
+    - name: AIRFLOW__API__AUTH_BACKENDS
+      value: 'airflow.api.auth.backend.basic_auth'
+    - name: AIRFLOW_CONN_HTTP_DUMMYJSON
+      value: '{"conn_type": "http_dummyjson","host": "https://dummyjson.com","conn_type": "http"}'
+    - name: AIRFLOW_CONN_FS_DEFAULT
+      value: '{"conn_type": "fs_default","conn_type": "fs"}'

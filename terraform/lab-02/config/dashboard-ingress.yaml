@@ -1,0 +1,24 @@
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: kubernetes-dashboard-ingress
+  namespace: kubernetes-dashboard
+  annotations:
+    # Kong Proxy domyślnie nasłuchuje na HTTPS
+    nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
+    # Wyłączamy weryfikację certyfikatu między NGINX a Kongiem
+    nginx.ingress.kubernetes.io/proxy-ssl-verify: "false"
+spec:
+  ingressClassName: public # Upewnij się, że to właściwa klasa dla Twojego MicroK8s (często 'public' lub 'nginx')
+  rules:
+  # Brak sekcji 'host' - Ingress przechwyci zapytania bezpośrednio po IP
+  - http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            # Wskazujemy na usługę Konga
+            name: kubernetes-dashboard-kong-proxy
+            port:
+              number: 443
