@@ -1,9 +1,11 @@
-# 1. Aktualizacja i instalacja narzędzi
-apt-get update
-apt-get install -y snapd at curl
+if ! command -v microk8s &> /dev/null; then
+  # 1. Aktualizacja i instalacja narzędzi
+  apt-get update
+  apt-get install -y snapd at curl
 
-# 2. Instalacja i konfiguracja certyfikatu MicroK8s
-snap install microk8s --classic
+  # 2. Instalacja i konfiguracja certyfikatu MicroK8s
+  snap install microk8s --classic
+fi
 # 3. Konfiguracja sieci i certyfikatów MicroK8s
 echo "Rozpoczynanie konfiguracji sieci i certyfikatów..."
 PUBLIC_IP=$(curl -s -H "Metadata-Flavor: Google" http://metadata.google.internal/computeMetadata/v1/instance/network-interfaces/0/access-configs/0/external-ip)
@@ -32,15 +34,6 @@ microk8s start
 
 echo "Czekam na gotowość klastra po restarcie..."
 microk8s status --wait-ready
-sleep 15
-microk8s.enable dashboard
-microk8s.enable ingress
-
-# Tworzenie katalogów dla DAG-ów i danych Airflow
-mkdir -p /opt/airflow/dags
-mkdir -p /opt/airflow/data
-chmod -R 777 /opt/airflow/dags # Nadanie pełnych uprawnień dla poda
-chmod -R 777 /opt/airflow/data # Nadanie pełnych uprawnień dla poda
 
 # 3. Wygenerowanie i wysłanie kubeconfig
 TEMP_CONFIG_PATH="/tmp/kubeconfig"
@@ -64,7 +57,7 @@ if [ -s "$TEMP_CONFIG_PATH" ]; then
   sleep 10
   TOKEN_PATH="/tmp/dashboard_token.txt"
   microk8s kubectl create token default -n kubernetes-dashboard --duration=14400s > $TOKEN_PATH
-  
+
   if [ -s "$TOKEN_PATH" ]; then
     echo "Wysyłanie tokena do bucketu: ${BUCKET_NAME}"
     gsutil cp $TOKEN_PATH "gs://${BUCKET_NAME}/dashboard_token.txt"
@@ -76,5 +69,28 @@ else
   echo "Plik konfiguracyjny MicroK8s był pusty lub nie został utworzony." > /tmp/startup-script-error.log
 fi
 
-# 5. AUTO-SHUTDOWN
+# 5. Konfiguracja
+sleep 5
+microk8s.enable dashboard
+microk8s.enable ingress
+
+# Tworzenie katalogów dla DAG-ów i danych Airflow
+mkdir -p /opt/airflow/dags
+mkdir -p /opt/airflow/data
+chmod -R 777 /opt/airflow/dags # Nadanie pełnych uprawnień dla poda
+chmod -R 777 /opt/airflow/data # Nadanie pełnych uprawnień dla poda
+
+# 6. AUTO-SHUTDOWN
 echo "sudo poweroff" | at now + 4 hours
+
+# Tworzenie skryptu do przedłużania czasu działania
+PROLONG_SCRIPT="/usr/local/bin/prolong.sh"
+cat <<EOF > "$PROLONG_SCRIPT"
+#!/bin/bash
+# Usuwa wszystkie zaplanowane zadania 'at' i ustawia nowe wyłączenie za 4h
+for j in \$(atq | cut -f1); do atrm \$j; done
+echo "sudo poweroff" | at now + 4 hours
+echo "Czas działania maszyny został przedłużony o kolejne 4 godziny."
+EOF
+chmod +x "$PROLONG_SCRIPT"
+

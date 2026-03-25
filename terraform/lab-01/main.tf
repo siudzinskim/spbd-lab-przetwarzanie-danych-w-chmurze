@@ -49,7 +49,7 @@ resource "google_compute_firewall" "allow-network-traffic" {
 
   allow {
     protocol = "tcp"
-    ports    = ["22", "16443", "443", "8080", "8000"]
+    ports    = ["22", "16443", "8888", "443", "8080", "8000"]
   }
   source_ranges = ["0.0.0.0/0"]
 }

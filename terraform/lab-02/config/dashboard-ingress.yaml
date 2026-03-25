@@ -10,6 +10,8 @@ metadata:
     nginx.ingress.kubernetes.io/proxy-ssl-verify: "false"
 spec:
   ingressClassName: public # Upewnij się, że to właściwa klasa dla Twojego MicroK8s (często 'public' lub 'nginx')
+  tls:
+  - secretName: airflow-tls-secret
   rules:
   # Brak sekcji 'host' - Ingress przechwyci zapytania bezpośrednio po IP
   - http:
