@@ -61,7 +61,7 @@ python get_books.py
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; W folderze powinny pojawić się 2 pliki: `books.csv` oraz `bookstore.ddb`.
 
-3. UWAGA! Plik `books.csv` jest wymagany przez generator, bez niego wygenerowane dane będę nieprawidłowe!
+3. UWAGA! Plik `books.csv` jest wymagany przez generator, bez niego wygenerowane dane będą nieprawidłowe!
 4. Uruchom:
 
 ```shell
@@ -75,6 +75,10 @@ python generator.py
 ```shell
 curl https://install.duckdb.org | sh
 export PATH=$PATH:/config/.duckdb/cli/latest/
+```
+Aby duckdb był dostępny w każdej sesji dodaj koniecznie eksport zmiennej do pliku `~/.bashrc`:
+```shell
+echo 'export PATH=$PATH:/config/.duckdb/cli/latest/' >> ~/.bashrc
 ```
 
 6. Uruchom DuckDB podłączając się do bazy `bookstore.ddb`:
@@ -99,7 +103,7 @@ duckdb bookstore.ddb
 12. Spróbuj wykonać import pliku `transactions.json`
 13. Wykonaj polecenie:
 
-```python
+```sql
 CREATE OR REPLACE TABLE transactions AS
 SELECT * FROM read_json_auto('transactions.json');
 ```
@@ -118,7 +122,7 @@ Connected to a transient in-memory database.
 ```
 
 16. Podłącz się ponownie do bazy wykonując `.open bookstore.ddb` i wylistuj dostępne tabele.
-17. Teraz spróbujemy utworzyć zewnętrzną tabelą (widokiem):
+17. Teraz spróbujemy utworzyć zewnętrzną tabelę (widokiem):
 ```sql
 CREATE VIEW transactions_external AS
 SELECT *
@@ -132,7 +136,7 @@ oraz
 ```sql
 from transactions_external;
 ```
-19. Następnie zmień nazwę pliku `transactions.json` na `_transactions.json i ponownie wykonaj:
+19. Następnie zmień nazwę pliku `transactions.json` na `_transactions.json` i ponownie wykonaj:
 ```sql
 from transactions;
 ```
@@ -154,24 +158,29 @@ użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji
 
 1. **Skonfigurowany VSCode Server:** Upewnij się, że masz dostęp do serwera VSCode uruchomionego w ramach laboratorium
    `terraform/lab-03`.
-2. **Pliki startowe:** Korzystając z generatora utworzonego w ramach laboratorium `lab-dbt01`, przygotuj następujące
+2. **Pliki startowe:** Korzystając z generatora utworzonego w ramach laboratorium `dbt/lab-dbt01`, przygotuj następujące
    pliki:
     * `bookstore.ddb`: Baza zawierająca tylko tabelę `books`.
     * `customers.csv`: Plik CSV z danymi klientów.
     * `transactions.json`: Plik JSON z danymi transakcji.
+
+> Nota: możesz po prostu skopiować pliki z poprzedniego laboratorium 
 
 **Struktura projektu:**
 
 Na potrzeby tego laboratorium zakładamy następującą strukturę plików i katalogów:
 
 ```shell
-lab-dbt02/dbt_bookstore_lab/
-├── data/
-│   ├── bookstore.ddb
-│   ├── customers.csv
-│   └── transactions.json
-├── bookstore_dwh.ddb
-└── dbt_project/  <-- Tutaj zainicjujemy projekt dbt
+lab-dbt02/
+└──dbt_bookstore_lab/
+   ├── data/
+   │   ├── .
+   │   ├── bookstore.ddb
+   │   ├── customers.csv
+   │   └── transactions.json
+   ├── bookstore_dwh.ddb # ten plik jeszcze nie istnieje, zostanie utworzony na kolejnych etapach
+   └── dbt_project/  <-- Tutaj zainicjujemy projekt dbt
+
 ```
 
 Przed rozpoczęciem pracy utwórz foldery oraz skopiuj do nich wymagane pliki za pomocą następujących komend:
@@ -186,7 +195,12 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/trans
 
 #### Krok 1: Inicjalizacja projektu dbt
 
-1. Przejdź do katalogu `dbt_bookstore_lab` w terminalu.
+1. Przejdź do katalogu `dbt_bookstore_lab` w terminalu. Po sprawdzeniu ścieżki powinieneś znajdować się w następującej lokalizacji:
+```shell
+$ pwd
+/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab
+```
+
 2. Uruchom komendę inicjalizującą projekt `dbt`:
 
    ```bash
@@ -194,7 +208,23 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/trans
    ```
 
    Wybierz `duckdb` z listy adapterów, gdy zostaniesz o to poproszony. `dbt` utworzy podstawową strukturę katalogów
-   wewnątrz `dbt_project/` (m.in. `models`, `seeds`, `tests`).
+   wewnątrz `dbt_project/` (m.in. `models`, `seeds`, `tests`). Po prawidłowym wykonaniu polecenia w folderze powinna znaleźć się następująca struktura plików:
+```shell
+   .
+   └── dbt_project/
+       ├── analyses
+       ├── dbt_project.yml
+       ├── macros
+       ├── models
+       │   └── example
+       │       ├── my_first_dbt_model.sql
+       │       ├── my_second_dbt_model.sql
+       │       └── schema.yml
+       ├── README.md
+       ├── seeds
+       ├── snapshots
+       └── tests
+```
 
 #### Krok 2: Konfiguracja połączenia (profiles.yml)
 
@@ -206,7 +236,7 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/trans
    ```
 2. Dodaj konfigurację dla DuckDB, wskazując ścieżkę do pliku `bookstore_dwh.ddb`. Pamiętaj, aby użyć **pełnej (absolutnej)
    ścieżki** do pliku `bookstore_dwh.ddb` lub ścieżki względnej *do miejsca, z którego uruchamiasz `dbt`*. Dla uproszczenia
-   użyjmy ścieżki względnej zakładając, że `dbt` będzie uruchamiane z katalogu `dbt_bookstore_lab/dbt_project/`:
+   użyjmy ścieżki bezwzględnej:
 
    ```yaml
    # ~/.dbt/profiles.yml
@@ -272,7 +302,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 
 3. **(Opcjonalnie) Inspekcja:** Możesz użyć DuckDB CLI, aby sprawdzić, czy tabela została utworzona:
     ```bash
-    duckdb ....... # Uruchom z katalogu dbt_project/
+    duckdb ....... # odnajdź plik hurtowni danych ładowanych za pomocą dbt iw miejscu kropek wstaw odpowiednią ścieżkę 
     ```
     Wewnątrz DuckDB CLI:
     ```sql
@@ -311,7 +341,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
             description: "Tabela zawierająca informacje o książkach."
             # Możesz tutaj dodać testy dla danych źródłowych!
             columns:
-              - name: book_id
+              - name: index
                 tests:
                   - unique
                   - not_null
@@ -506,7 +536,7 @@ Teraz, gdy modele są zdefiniowane, możemy je uruchomić.
      - name: stg_books
        description: "Model stagingowy dla książek."
        columns:
-         - name: book_id
+         - name: index
            description: "Unikalny identyfikator książki."
            tests:
              - unique
@@ -541,6 +571,7 @@ Teraz, gdy modele są zdefiniowane, możemy je uruchomić.
                  to: ref('stg_customers')
                  field: customer_id
    ```
+   
     * `unique`, `not_null`: Wbudowane testy generyczne.
     * `relationships`: Wbudowany test sprawdzający spójność referencyjną (klucze obce).
 
@@ -602,14 +633,25 @@ Gratulacje! Ukończyłeś podstawowe laboratorium `dbt` z DuckDB. Nauczyliście 
 * Dowiedz się więcej o **snapshotach** do śledzenia zmian w danych źródłowych.
 * Zapoznaj się z zaawansowanymi konfiguracjami w `dbt_project.yml`.
 
-## Lab05
+---
+> [!WARNING]  
+>  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+> [!WARNING]  
+> Poniższe instrukcje laboratoriów nie zostały jeszcze zmigrowane do chmury GCP. Poniższe instrukcje nie będą działały prawidłowo! 
+
+> [!WARNING]  
+>  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+---
+
+## Lab 03
 
 W tej części laboratorium uruchomimy instancję Apache Airflow, korzystając z najprostszej możliwej konfiguracji, czyli
 korzystając z plikowej bazy danych SQLite oraz trybu standalone. Następnie utworzymy DAG umożliwiający uruchomienie 
 procesu przetwarzania danych za pomocą `dbt`.
 
 ### Uruchomienie serwera Apache Airflow
-> UWAGA! Zanim przejdziesz do realizacji ćwiczenia przejdź do konsoli AWS i ręcznie usuń wirtualną maszynę. Zaleca się wcześniejsze wykonanie kopii zapasowej w zasobniku S3.
 
 ---
 
@@ -781,7 +823,7 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
 
 
-## Lab 06
+## Lab 04
 
 W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony. 
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
