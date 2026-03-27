@@ -94,15 +94,7 @@ duckdb bookstore.ddb
 .import customers.csv customers
 ```
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Następnie wykonaj kwerendę `from customers;`. Zwróć uwagę na liczbę kolumn.
-
-11. Spróbuj wykonać:
-
-```
-.import customers.csv customers --csv
-```
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Co należy zrobić najpierw, aby umożliwić wykonanie polecenia?
+11. Wykonaj kwerendę `from customers;`. 
 
 12. Spróbuj wykonać import pliku `transactions.json`
 13. Wykonaj polecenie:
@@ -126,16 +118,34 @@ Connected to a transient in-memory database.
 ```
 
 16. Podłącz się ponownie do bazy wykonując `.open bookstore.ddb` i wylistuj dostępne tabele.
-17. Zamknij połączenie z bazą.
+17. Teraz spróbujemy utworzyć zewnętrzną tabelą (widokiem):
+```sql
+CREATE VIEW transactions_external AS
+SELECT *
+FROM read_json('transactions.json');
+```
+18. Wykonaj zapytania:
+```sql
+from transactions;
+```
+oraz
+```sql
+from transactions_external;
+```
+19. Następnie zmień nazwę pliku `transactions.json` na `_transactions.json i ponownie wykonaj:
+```sql
+from transactions;
+```
+oraz
+```sql
+from transactions_external;
+```
+Co się wydarzyło?
+20. Zamknij połączenie z bazą danych
 
-## Lab03
+## Lab02
 
-To laboratorium pokazuje w jaki sposób można zrealizować funkcję generatora, która umożliwi uruchomienie generatora jako
-Lambda. Niestety ze względu na ograniczenia środowiskowe funkcjonalności są ograniczone.
-
-## Lab04
-
-W czwartej części laboratorium utworzymy nowy projekt dbt.
+W kolejnej części laboratorium zapoznamy się z dbt. Najpierw utworzymy nowy projekt dbt.
 
 **Cel:** To laboratorium ma na celu zapoznanie Cię z podstawowymi koncepcjami i funkcjami `dbt` (Data Build Tool) przy
 użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji danych dla fikcyjnej księgarni.
@@ -143,7 +153,7 @@ użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji
 **Wymagania wstępne:**
 
 1. **Skonfigurowany VSCode Server:** Upewnij się, że masz dostęp do serwera VSCode uruchomionego w ramach laboratorium
-   `lab-dbt01`.
+   `terraform/lab-03`.
 2. **Pliki startowe:** Korzystając z generatora utworzonego w ramach laboratorium `lab-dbt01`, przygotuj następujące
    pliki:
     * `bookstore.ddb`: Baza zawierająca tylko tabelę `books`.
@@ -155,7 +165,7 @@ użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji
 Na potrzeby tego laboratorium zakładamy następującą strukturę plików i katalogów:
 
 ```shell
-lab-dbt04/dbt_bookstore_lab/
+lab-dbt02/dbt_bookstore_lab/
 ├── data/
 │   ├── bookstore.ddb
 │   ├── customers.csv
@@ -167,10 +177,10 @@ lab-dbt04/dbt_bookstore_lab/
 Przed rozpoczęciem pracy utwórz foldery oraz skopiuj do nich wymagane pliki za pomocą następujących komend:
 ```shell
 cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt
-mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
 ```
 > UWAGA! Nie należy tworzyć folderu `dbt_project` ani pliku `bookstore_dwh.ddb`.
 
@@ -204,7 +214,7 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/trans
      outputs:
        dev:
          type: duckdb
-         path: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data/bookstore_dwh.ddb
+         path: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data/bookstore_dwh.ddb
          threads: 2
    
      target: dev
@@ -623,7 +633,7 @@ aws s3 cp /tmp/spdb-bckp-* s3://<nazwa-twojego-bucketu>/bckp/
    * Zaaplikuj zmiany w infrastrukturze. 
 2. Korzystając z wartości `vscode-tunnel-cmd` zwróconej przez terraform aby uruchomić tunel.
 3. Aby uruchomić serwer Airflow podłącz się do serwera vscode i otwórz terminal, a następnie przejdź do ścieżki 
-`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
+`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt03/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
 zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i wykonaj polecenie:
     ```shell
     ./init.sh
@@ -765,7 +775,7 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
 9. Spróbuj uruchomić DAG z domyślnymi parametrami. Dlaczego nie działa?
 10. Aby naprawić problem z brakiem dostępności projektu dbt utwórz link symboliczny:
    ```shell
-       ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
+       ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
    ```
 11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
