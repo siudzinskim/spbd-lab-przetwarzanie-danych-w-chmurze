@@ -5,7 +5,7 @@ terraform {
   # Konfiguracja zdalnego przechowywania stanu
   backend "gcs" {
     bucket  = "spdb-2026-tf-state" # Nazwa bucketu musi być unikalna
-    prefix  = "terraform/state"                       # Ścieżka wewnątrz bucketu
+    prefix  = "terraform/lab-03/state"                       # Ścieżka wewnątrz bucketu
   }
 
   # Definicja wymaganych providerów i ich wersji

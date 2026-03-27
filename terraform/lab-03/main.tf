@@ -17,34 +17,29 @@ resource "google_project_service" "storage" {
   disable_on_destroy = false
 }
 
-# Losowy ciąg znaków, aby nazwa bucketu była unikalna na świecie
-resource "random_id" "bucket_suffix" {
-  byte_length = 4
-}
-
-# 1. Tworzenie Bucket na Config
-resource "google_storage_bucket" "config_bucket" {
+# 1. Tworzenie Bucket na Workspace
+resource "google_storage_bucket" "workspace_bucket" {
   depends_on    = [google_project_service.storage]
-  name          = "${var.project_id}-k8s-config"
+  name          = "${var.project_id}-lab-workspace"
   location      = var.region
-  force_destroy = true # Pozwala usunąć bucket z zawartością przy terraform destroy
+  force_destroy = false # Nie pozwala usunąć bucketu z zawartością przy terraform destroy
 }
 
 # Wysyłanie skryptu setup.sh do bucketa
 resource "google_storage_bucket_object" "setup_script" {
   name   = "setup.sh"
-  bucket = google_storage_bucket.config_bucket.name
+  bucket = google_storage_bucket.workspace_bucket.name
   source = "${path.module}/scripts/setup.sh"
 }
 
 # 2. Konfiguracja sieci (uproszczona - domyślna)
 resource "google_compute_network" "vpc_network" {
   depends_on = [google_project_service.compute]
-  name       = "terraform-network"
+  name       = "lab-network"
 }
 
 resource "google_compute_firewall" "allow-network-traffic" {
-  name    = "allow-network-traffic"
+  name    = "allow-network-traffic-lab"
   network = google_compute_network.vpc_network.name
 
   allow {
@@ -55,16 +50,16 @@ resource "google_compute_firewall" "allow-network-traffic" {
 }
 
 # 3. Tworzenie Wirtualnej Maszyny
-resource "google_compute_instance" "k8s_node" {
+resource "google_compute_instance" "vm" {
   depends_on   = [google_project_service.compute, google_storage_bucket_object.setup_script]
-  name         = "microk8s-lab-vm"
+  name         = "lab-vm"
   machine_type = var.instance_type
   zone         = var.zone
 
   boot_disk {
     initialize_params {
       image = "ubuntu-os-cloud/ubuntu-2204-lts"
-      size  = 20 # MicroK8s potrzebuje trochę miejsca
+      size  = 20
     }
   }
 
@@ -79,7 +74,8 @@ resource "google_compute_instance" "k8s_node" {
   # Zmiany w setup.sh nie będą już powodować odtwarzania maszyny.
   metadata_startup_script = <<-EOT
     #!/bin/bash
-    BUCKET_NAME="${google_storage_bucket.config_bucket.name}"
+    VSCODE_PASSWORD="${var.vscode_password}"
+    BUCKET_NAME="${google_storage_bucket.workspace_bucket.name}"
     gsutil cp "gs://$${BUCKET_NAME}/setup.sh" /tmp/setup.sh
     chmod +x /tmp/setup.sh
     /tmp/setup.sh "$BUCKET_NAME"

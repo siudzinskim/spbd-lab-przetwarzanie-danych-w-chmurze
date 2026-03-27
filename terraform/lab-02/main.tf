@@ -17,6 +17,7 @@ resource "local_file" "kubeconfig" {
 # Wskazujemy na tymczasowy plik kubeconfig.
 provider "kubectl" {
   config_path = local_file.kubeconfig.filename
+  # config_context = data.google_storage_bucket_object_content.kubeconfig.content
 }
 
 # Utworzenie zasobu Ingress na podstawie pliku YAML z folderu config

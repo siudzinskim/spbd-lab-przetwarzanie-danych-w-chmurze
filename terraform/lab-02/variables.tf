@@ -20,3 +20,9 @@ variable "dags_base_path" {
   type        = string
   default     = "/opt/airflow" # Domyślna ścieżka, jeśli nie podano inaczej
 }
+
+variable "vscode_password" {
+  description = "Hasło do serwera VS Code."
+  type        = string
+  default     = "dbtlab2026"
+}

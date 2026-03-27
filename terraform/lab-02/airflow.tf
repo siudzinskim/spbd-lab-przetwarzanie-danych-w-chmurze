@@ -75,6 +75,21 @@ resource "kubernetes_secret" "dashboard_tls" {
   type = "kubernetes.io/tls"
 }
 
+# Stworzenie sekretu z certyfikatem w przestrzeni nazw default (dla VS Code)
+resource "kubernetes_secret" "vscode_tls" {
+  metadata {
+    name      = "airflow-tls-secret"
+    namespace = "default"
+  }
+
+  data = {
+    "tls.crt" = tls_self_signed_cert.airflow.cert_pem
+    "tls.key" = tls_private_key.airflow.private_key_pem
+  }
+
+  type = "kubernetes.io/tls"
+}
+
 # Instalacja Airflow z Helma
 resource "helm_release" "airflow" {
   repository = "https://airflow.apache.org"

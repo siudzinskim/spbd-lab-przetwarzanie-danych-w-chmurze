@@ -2,93 +2,26 @@
 
 W tym ćwiczeniu będziemy opracowywać nowoczesny, minimalistyczny, platform-agnostic system przetwarzania i analizy
 danych.
-Wykorzystywana infrastruktura będzie oparta o AWS, jednak wykorzystywać będzie narzędzia open-source: `DuckDB` oraz
+Wykorzystywana infrastruktura będzie oparta o GCP, jednak wykorzystywać będzie narzędzia open-source: `DuckDB` oraz
 `dbt`.
 
-W celu utworzenia infrastruktury będziemy wykorzystywać elementy utworzone w ramach poprzednich laboratoriów, jednak
-wszystkie wymagane komponenty będą dostarczone w ramach tego repozytorium, wystarczy jedynie auaktualnić konfigurację.
+W celu utworzenia infrastruktury będziemy wykorzystywać elementy utworzone w ramach poprzednich laboratoriów. Aby uruchomić 
+maszynę wirtualną, na której będziemy pracować przejdź do laboratorium w ścieżce:
+
+```
+terraform/lab-03
+```
+
+oraz uruchom polecenia:
+
+```
+terraform init
+terraform apply
+```
+
+Po uruchomieniu maszyny skrypt terraform wyświetli informację z adresem serwera vscode oraz hasłem dostępowym.
 
 ## Lab01
-
-W tym laboratorium utworzymy wymaganą infrastrukturę, zawierającą:
-
-#### Komponenty związane z S3 (z pliku `s3.tf`)
-
-* **`aws_s3_bucket.public_bucket`**:
-    * Jest to publicznie dostępny bucket S3, który służy do przechowywania danych.
-    * Nazwa bucketa to `"spdb-siudzinskim-public"`.
-    * `acl = "public-read"`: To sprawia, że bucket jest publicznie czytelny.
-
-* **`aws_s3_bucket_public_access_block.public_bucket_access_block`**:
-    * Ten komponent konfiguruje blokady dostępu publicznego dla bucketa S3.
-    * Ustawienia `block_public_acls`, `block_public_policy`, `ignore_public_acls`, `restrict_public_buckets` są
-      ustawione na `false`, co oznacza, że bucket jest publicznie dostępny.
-
-* **`aws_s3_bucket_policy.public_bucket_policy`**:
-    * Jest to polityka dostępu, która definiuje, kto i co może robić z zasobami w buckecie S3.
-    * W tym przypadku polityka zezwala wszystkim użytkownikom (`Principal = "*"`) na odczyt obiektów z tego bucketa (
-      `Action = ["s3:GetObject"]`).
-
-#### Komponenty związane z EC2 (z pliku `ec2.tf`)
-
-* **`data.aws_ami.amazon_linux`**:
-    * Źródło danych, które wyszukuje najnowszą wersję obrazu Amazon Machine Image (AMI) dla systemu Amazon Linux 2.
-    * Parametry wyszukiwania zawężają wynik do obrazów o architekturze `x86_64` i typie wirtualizacji `hvm`.
-
-* **`aws_instance.lab_instance`**:
-    * Instancja maszyny wirtualnej EC2.
-    * Używa obrazu znalezionego w `data.aws_ami.amazon_linux`.
-    * Typ instancji to `t2.micro`.
-    * Jest umieszczona w podsieci zdefiniowanej przez `subnet_id`.
-    * `key_name = "kp"` - klucz SSH.
-    * Ustawienie `associate_public_ip_address = true` powoduje przypisanie publicznego adresu IP do instancji.
-    * Nazwa tej instancji, ustawiana przez tag `Name`, to `"lab-ec2"`.
-    * Skrypt uruchamiany na starcie instancji znajduje się w pliku `startup.sh` i jest kodowany przy użyciu funkcji
-      `filebase64()`.
-    * `security_groups = [aws_security_group.allow_ssh.id]` - przypisana grupa bezpieczeństwa.
-
-* **`aws_ebs_volume.example`**:
-    * Wolumin EBS o rozmiarze 10 GB i typie `gp2`, który będzie dołączony do instancji EC2.
-    * Nazwa tego woluminu to `"lab-volume"`.
-
-* **`aws_volume_attachment.ebs_att`**:
-    * Definicja dołączenia woluminu EBS do instancji EC2.
-    * Wolumin `aws_ebs_volume.example` jest dołączany do instancji `aws_instance.lab_instance` jako urządzenie
-      `/dev/sdh`.
-
-* **`aws_security_group.allow_ssh`**:
-    * Grupa bezpieczeństwa, która kontroluje ruch sieciowy do instancji EC2.
-    * Umożliwia ruch przychodzący na porcie 22 (SSH) z dowolnego adresu IP (`cidr_blocks = ["0.0.0.0/0"]`).
-    * Umożliwia cały ruch wychodzący.
-    * `vpc_id = aws_vpc.main.id` - przypisanie do vpc.
-    * Nazwa tej grupy bezpieczeństwa to `"allow_ssh"`.
-
-### Podsumowanie
-
-W folderze `lab-dbt01` zdefiniowane są komponenty do stworzenia: publicznego bucketa S3, grupy bezpieczeństwa, woluminu
-EBS, oraz instancji EC2 z dołączonym woluminem. Dodatkowo kod definiuje źródło danych dla obrazu AMI. Komponenty te
-tworzą podstawową infrastrukturę na AWS.
-
-
-> UWAGA: podczas laboratorium korzystaj koniecznie z systemu Linux, w celu uniknięcia problemów z kompatybilnością.
-
-### Instrukcja:
-
-1. Zaloguj się do konsoli `AWS Academy Learner Lab` i uruchom laboratorium:
-2. W zakładce `AWS Details` znajduje się sekcja `Cloud Accsess`, rozwiń `AWS CLI`, kilkając przycisk `Show`, a następnie
-   skopiuj dane logowania i wklej je do pliku `~/.aws/credentials`
-3. W konsoli AWS przejdź do `Key Pairs` w sekcji `EC2 -> Network & Security`, a następnie utwórz parę o nazwie `kp`.
-   Podczas tworzenia plik zostanie pobrany do folderu `Downloads`.
-4. Przejdź do folderu `lab-dbt01`, a następnie utwórz elementy infrastruktury za pomocą Terraform.
-5. Zwróć uwagę na zawartość pliku `startup.sh`, wytłumacz jaka jaest jego funkcja i jakie czyności zostaną wykonane
-6. Utwórz tunel SSH do utworzonej instancji na porcie 8888, który umożliwi połączenie z usługą uruchomioną na zdalnej
-   maszynie. Pomocny będzie terraform output. Wytłumacz jak działa taki tunel?
-7. Otwórz przeglądarkę i połącz się z localhost:8888
-8. W oknie przeglądarki w aplikacji VSCode utwórz plik `hello`, a następnie przejdź do konsoli AWS i usuń wirtualną
-   maszynę. Ponownie utwórz ją korzystając z polecenia `terraform apply`. Czy po ponownym podłączeniu do serwera VSCode
-   plik `hello` istnieje?
-
-## Lab02
 
 W tym laboratorium zajmiemy się generowaniem danych testowych. Jest to praktyka, którą możemy wykorzystywać kiedy znamy
 strukturę danych, jednak nie mamy jeszcze dostępu do danych testowych lub produkcyjnych.
@@ -120,7 +53,7 @@ Pozostałe dane będą syntetyczne i będziemy generować je za pomocą generato
 
 1. Sklonuj repozytorium (https://github.com/siudzinskim/spbd-lab-przetwarzanie-danych-w-chmurze.git) do lokalnego
    folderu na serwerze VSCode.
-2. Przejdź do folderu `dbt/lab-dbt02` i uruchom:
+2. Przejdź do folderu `spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01` i uruchom:
 
 ```shell
 python get_books.py
@@ -235,9 +168,9 @@ Przed rozpoczęciem pracy utwórz foldery oraz skopiuj do nich wymagane pliki za
 ```shell
 cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt
 mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
 ```
 > UWAGA! Nie należy tworzyć folderu `dbt_project` ani pliku `bookstore_dwh.ddb`.
 
@@ -866,7 +799,7 @@ from airflow.utils.dates import days_ago
 
 # --- Default Configuration ---
 # Ścieżka do skryptu generatora
-GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/generator.py')
+GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/generator.py')
 # Ścieżka do folderu wyjściowego dla dbt_bookstore_lab
 DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
 # Domyślna ścieżka do projektu dbt (używana przez dbt_dag_run)

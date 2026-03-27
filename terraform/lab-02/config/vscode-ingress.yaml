@@ -1,19 +1,19 @@
 apiVersion: networking.k8s.io/v1
 kind: Ingress
 metadata:
-  name: airflow-ingress
-  namespace: airflow
+  name: vscode-ingress
+  namespace: default
   annotations:
     nginx.ingress.kubernetes.io/backend-protocol: "HTTPS"
-    nginx.ingress.kubernetes.io/ssl-redirect: "true"
-    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/ssl-redirect: "false"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "false"
     nginx.ingress.kubernetes.io/ssl-passthrough: "false"
     # Ponieważ Airflow ma teraz własny certyfikat samopodpisany, pomijamy weryfikację między Ingress a Podem
     nginx.ingress.kubernetes.io/proxy-ssl-verify: "false"
 spec:
   ingressClassName: public
   tls:
-    - secretName: airflow-tls-secret
+    - secretName: airflow-tls-secret # Korzystamy z tego samego sekretu co Airflow, stworzonego w namespace default
   rules:
     - http:
         paths:
@@ -21,6 +21,6 @@ spec:
             pathType: Prefix
             backend:
               service:
-                name: airflow-api-server
+                name: vscode-service
                 port:
-                  number: 8080
+                  number: 8443

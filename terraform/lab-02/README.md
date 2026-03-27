@@ -1,3 +1,5 @@
+Najpierw musimy wykonać wszystkie operacje z lab-01 - to będzie stanowiło niezbędną infrastrukturę dla tego labu
+
 Aby uruchomić ten moduł konieczne będzie targetowane uruchamianie krok po kroku.
 
 najpierw upewniamy się że moduł lab-01 jest na pewno zaaplikowany i aktualny
