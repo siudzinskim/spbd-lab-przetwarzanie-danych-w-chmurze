@@ -1,0 +1,211 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <title>Laboratorium: DuckDB & dbt</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/dracula.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
+    <style>
+        .reveal pre { width: 100%; font-size: 0.55em; }
+        .reveal h2 { color: #8be9fd; }
+        .reveal h3 { color: #50fa7b; }
+        .highlight-box { background: #44475a; padding: 10px; border-radius: 8px; border-left: 5px solid #bd93f9; }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <section>
+                <h1>DuckDB & dbt</h1>
+                <h3>Nowoczesne Przetwarzanie Danych</h3>
+                <p><small>Laboratorium: Przetwarzanie i Analiza w Chmurze</small></p>
+            </section>
+
+            <section>
+                <section>
+                    <h2>Lab 01: Eksploracja i DuckDB</h2>
+                    <p>Cel: Generowanie danych i pierwsze kroki z silnikiem analitycznym.</p>
+                </section>
+
+                <section>
+                    <h3>Dane wejściowe</h3>
+                    <div class="highlight-box">
+                        <ul>
+                            <li><strong>Kaggle:</strong> Books Sales and Ratings (CSV).</li>
+                            <li><strong>Dane syntetyczne:</strong> Generowane skryptem Python (Klienci, Transakcje).</li>
+                            <li><strong>Narzędzia:</strong> DuckDB CLI.</li>
+                        </ul>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Instalacja DuckDB</h3>
+                    <pre><code class="language-bash">
+# Instalacja CLI
+curl https://install.duckdb.org | sh
+
+# Dodanie do ścieżki (bashrc)
+echo 'export PATH=$PATH:/config/.duckdb/cli/latest/' >> ~/.bashrc
+source ~/.bashrc
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Praca z bazą danych</h3>
+                    <pre><code class="language-sql">
+-- Podłączenie do bazy plikowej
+duckdb bookstore.ddb
+
+-- Skrócona składnia DuckDB
+FROM books;
+
+-- Import danych z zewnętrznych plików
+.import customers.csv customers
+
+CREATE OR REPLACE TABLE transactions AS
+SELECT * FROM read_json_auto('transactions.json');
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Wnioski z Lab 01</h3>
+                    <ul>
+                        <li>DuckDB potrafi czytać dane "w locie" (widoki zewnętrzne).</li>
+                        <li>Automatyczne wykrywanie schematów dla JSON (`read_json_auto`).</li>
+                        <li>Wysoka wydajność przy minimalnej konfiguracji.</li>
+                    </ul>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>Lab 02: Transformacja z dbt</h2>
+                    <p>Cel: Budowa pipeline'u transformacji w standardzie Analytics Engineering.</p>
+                </section>
+
+                <section>
+                    <h3>Inicjalizacja dbt</h3>
+                    <pre><code class="language-bash">
+dbt init dbt_project
+# Adapter: duckdb
+                    </code></pre>
+                    <p>Struktura projektu:</p>
+                    <ul style="font-size: 0.7em;">
+                        <li><strong>models/</strong> - tu piszemy SQL</li>
+                        <li><strong>seeds/</strong> - statyczne CSV</li>
+                        <li><strong>analyses/</strong> - zapytania ad-hoc</li>
+                    </ul>
+                </section>
+
+                <section>
+                    <h3>Konfiguracja (profiles.yml)</h3>
+                    <pre><code class="language-yaml">
+dbt_project:
+  outputs:
+    dev:
+      type: duckdb
+      path: /ścieżka/do/bookstore_dwh.ddb
+      threads: 2
+  target: dev
+                    </code></pre>
+                    <p><small>Weryfikacja: <code>dbt debug</code></small></p>
+                </section>
+
+                <section>
+                    <h3>Seeds & Sources</h3>
+                    <p><strong>Seeds:</strong> Pliki CSV (np. klienci) ładowane poleceniem <code>dbt seed</code>.</p>
+                    <p><strong>Sources:</strong> Deklaracja danych źródłowych w <code>schema.yml</code>.</p>
+                    <pre><code class="language-yaml">
+sources:
+  - name: raw_data
+    tables:
+      - name: books
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Architektura Modeli</h3>
+                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 10px;">
+                        <div class="highlight-box">
+                            <h4>Staging</h4>
+                            <p><small>Oczyszczanie, rzutowanie typów, zmiana nazw.</small></p>
+                        </div>
+                        <div class="highlight-box" style="border-left-color: #50fa7b;">
+                            <h4>Mart/Fact</h4>
+                            <p><small>Łączenie tabel (Joins) i agregacja biznesowa.</small></p>
+                        </div>
+                    </div>
+                </section>
+
+                <section>
+                    <h3>Przykładowy Model Fact</h3>
+                    <pre><code class="language-sql">
+{{ config(materialized='table') }}
+
+with transactions as (
+    select *, unnest(items) as item from {{ ref('stg_transactions') }}
+),
+customers as ( select * from {{ ref('stg_customers') }} )
+
+select
+    t.transaction_id,
+    c.email,
+    (t.item.unit_price * t.item.quantity) as total_amount
+from transactions t
+left join customers c on t.customer_id = c.customer_id
+                    </code></pre>
+                </section>
+
+                <section>
+                    <h3>Testy i Jakość Danych</h3>
+                    <p>Definiowane w plikach YAML:</p>
+                    <pre><code class="language-yaml">
+columns:
+  - name: customer_id
+    tests:
+      - unique
+      - not_null
+      - relationships:
+          to: ref('stg_customers')
+          field: customer_id
+                    </code></pre>
+                    <p><small>Komenda: <code>dbt test</code></small></p>
+                </section>
+
+                <section>
+                    <h3>Dokumentacja (DAG)</h3>
+                    <p>Automatyczne generowanie dokumentacji projektu.</p>
+                    <pre><code class="language-bash">
+dbt docs generate
+dbt docs serve
+                    </code></pre>
+                    <p><small>Wizualizacja zależności między modelami (Lineage).</small></p>
+                </section>
+            </section>
+
+            <section>
+                <h2>Podsumowanie</h2>
+                <ul>
+                    <li><strong>DuckDB:</strong> Idealny do analiz lokalnych i chmurowych bez serwera.</li>
+                    <li><strong>dbt:</strong> Standard w inżynierii danych – wersjonowanie, testy i czytelność.</li>
+                    <li><strong>Efekt:</strong> Skalowalna i łatwa w utrzymaniu hurtownia danych.</li>
+                </ul>
+            </section>
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            plugins: [ RevealHighlight ]
+        });
+    </script>
+</body>
+</html>
