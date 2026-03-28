@@ -1,0 +1,287 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <title>DuckDB: Nowoczesny Silnik Analityczny</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/blood.min.css">
+
+    <link rel="stylesheet"
+          href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
+    <style>
+        /* Globalne nadpisanie wielkości czcionek */
+        :root {
+            --r-main-font-size: 33px; /* Zmniejszona podstawa z domyślnych ~40px */
+            --r-heading-text-transform: none;
+        }
+
+        .reveal h1 { font-size: 2.2em !important; }
+        .reveal h2 { font-size: 1.6em !important; color: #f1c40f !important; border-bottom: 1px solid rgba(241, 196, 15, 0.3); padding-bottom: 10px; }
+        .reveal h3 { font-size: 1.2em !important; color: #3498db !important; }
+        .reveal p, .reveal li { font-size: 0.9em; line-height: 1.6; }
+
+        /* Stylistyka kodu */
+        .reveal code { color: #e74c3c !important; font-family: 'Courier New', Courier, monospace; }
+        .reveal pre { width: 95% !important; font-size: 0.55em !important; box-shadow: 0 5px 15px rgba(0,0,0,0.3); }
+
+        .important { color: #2ecc71; font-weight: bold; }
+        .highlight-box {
+            background: rgba(0, 0, 0, 0.2);
+            padding: 20px;
+            border-radius: 8px;
+            border-left: 5px solid #3498db;
+            text-align: left;
+            margin: 20px 0;
+        }
+
+        /* Dyskretna numeracja slajdów */
+        .reveal .slide-number { font-size: 0.4em !important; color: rgba(255,255,255,0.5) !important; background: transparent !important; }
+    </style>
+</head>
+<body>
+<div class="reveal">
+    <div class="slides">
+
+        <section>
+            <section>
+                <h1>DuckDB</h1>
+                <h3>Zaawansowany system zarządzania bazą danych OLAP</h3>
+                <p>Architektura, Ładowanie i Integracja z Ekosystemem Modern Data Stack</p>
+            </section>
+            <section>
+                <h2>1.1 Charakterystyka systemu</h2>
+                <p>DuckDB to relacyjna baza danych typu in-process, zoptymalizowana pod kątem obciążeń analitycznych
+                    (OLAP).</p>
+                <div class="highlight-box">
+                    <ul>
+                        <li><strong>Brak serwera:</strong> Działa wewnątrz procesu aplikacji (jak SQLite).</li>
+                        <li><strong>Kolumnowy silnik:</strong> Efektywne przetwarzanie dużych zbiorów danych.</li>
+                        <li><strong>ACID:</strong> Pełna zgodność transakcyjna poprzez MVCC.</li>
+                    </ul>
+                </div>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>2. Fundamenty Wydajności</h2>
+            </section>
+            <section>
+                <h3>2.1 Przetwarzanie wektorowe</h3>
+                <p>W przeciwieństwie do tradycyjnych baz przetwarzających wiersz po wierszu, DuckDB operuje na wektorach
+                    danych (DataChunks).</p>
+                <ul>
+                    <li>Redukcja narzutu wywołań funkcji.</li>
+                    <li>Optymalizacja pod kątem pamięci cache CPU (L1/L2).</li>
+                    <li>Wykorzystanie instrukcji SIMD (Single Instruction, Multiple Data).</li>
+                </ul>
+            </section>
+            <section>
+                <h3>2.2 Zarządzanie pamięcią: Out-of-Core</h3>
+                <p>DuckDB potrafi przetwarzać zbiory danych większe niż dostępna pamięć RAM.</p>
+                <div class="highlight-box">
+                    <p>Mechanizm "spilling to disk" pozwala na wykonywanie skomplikowanych zapytań (JOIN, AGGREGATE)
+                        przy użyciu buforowanego zapisu na dysku.</p>
+                </div>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>3. Ładowanie i źródła zewnętrzne</h2>
+            </section>
+            <section>
+                <h3>3.1 Formaty plików</h3>
+                <p>Natywne wsparcie dla nowoczesnych formatów przechowywania danych:</p>
+                <ul>
+                    <li><strong>Parquet:</strong> Odczyt metadanych, pushdown filtrów i projekcji.</li>
+                    <li><strong>JSON:</strong> Automatyczna detekcja schematów (sniffing) i wsparcie dla typów
+                        zagnieżdżonych.
+                    </li>
+                    <li><strong>CSV:</strong> Wysoce wydajny, wielowątkowy parser.</li>
+                </ul>
+            </section>
+            <section>
+                <h3>3.2 Dostęp przez protokoły sieciowe</h3>
+                <p>DuckDB umożliwia bezpośrednie zapytania do zasobów zdalnych bez potrzeby ich pobierania.</p>
+                <pre><code class="language-sql">
+-- Odczyt bezpośrednio z HTTP(S)
+SELECT * FROM read_parquet('https://data.example.com/file.parquet');
+
+-- Wsparcie dla S3 (Cloud Storage)
+INSTALL httpfs; LOAD httpfs;
+SELECT count(*) FROM read_csv('s3://my-bucket/logs/*.csv');
+                    </code></pre>
+            </section>
+            <section>
+                <h3>3.3 Standardy Lakehouse</h3>
+                <p>Rozszerzenia umożliwiają pracę z nowoczesnymi warstwami składowania:</p>
+                <ul>
+                    <li><strong>Apache Iceberg</strong></li>
+                    <li><strong>Delta Lake</strong></li>
+                </ul>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>4. Interoperacyjność bazodanowa</h2>
+            </section>
+            <section>
+                <h3>4.1 Mechanizm ATTACH</h3>
+                <p>DuckDB pozwala na podłączenie zewnętrznych baz danych i wykonywanie zapytań cross-database.</p>
+                <pre><code class="language-sql">
+-- Podłączenie istniejącej bazy SQLite
+ATTACH 'legacy_data.db' AS sqlite_db (TYPE SQLITE);
+
+-- Transfer danych między silnikami
+INSERT INTO duckdb_table SELECT * FROM sqlite_db.users;
+                    </code></pre>
+            </section>
+            <section>
+                <h3>4.2 Rozszerzenia dla systemów zewnętrznych</h3>
+                <p>Możliwość bezpośredniego skanowania tabel w systemach:</p>
+                <ul>
+                    <li><strong>PostgreSQL:</strong> Wykorzystanie skanera binarnego.</li>
+                    <li><strong>MySQL:</strong> Bezpośrednie połączenie przez biblioteki klienckie.</li>
+                </ul>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>5. Dialekt SQL: Friendly SQL</h2>
+            </section>
+            <section>
+                <h3>5.1 Uproszczona eksploracja</h3>
+                <p>Składnia zaprojektowana w celu skrócenia czasu deweloperskiego.</p>
+                <pre><code class="language-sql">
+-- Skrócona forma SELECT *
+FROM orders;
+
+-- Pobranie próby danych
+FROM orders USING SAMPLE 10%;
+                    </code></pre>
+            </section>
+            <section>
+                <h3>5.2 SELECT EXCLUDE i REPLACE</h3>
+                <p>Precyzyjna kontrola nad projekcją kolumn.</p>
+                <pre><code class="language-sql">
+-- Pobierz wszystko oprócz kolumn technicznych
+SELECT * EXCLUDE (created_at, updated_at) FROM users;
+
+-- Pobierz wszystko, transformując jedną kolumnę
+SELECT * REPLACE (lower(email) AS email) FROM users;
+                    </code></pre>
+            </section>
+            <section>
+                <h3>5.3 Funkcje analityczne: ASOF JOIN</h3>
+                <p>Niezbędny do analizy szeregów czasowych (Financial, IoT).</p>
+                <pre><code class="language-sql">
+SELECT * FROM prices
+ASOF JOIN trades ON prices.symbol = trades.symbol
+                 AND prices.time <= trades.time;
+                    </code></pre>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>6. Programistyczny ekosystem</h2>
+            </section>
+            <section>
+                <h3>6.1 Wsparcie dla Pythona</h3>
+                <p>DuckDB jest de facto standardem dla analityków używających Pythona.</p>
+                <ul>
+                    <li><strong>Integracja z Pandas/Polars:</strong> Transfer danych bez kopiowania (Zero-copy).</li>
+                    <li><strong>Relational API:</strong> Możliwość budowania zapytań w sposób funkcyjny.</li>
+                </ul>
+            </section>
+            <section>
+                <h3>6.2 Apache Arrow</h3>
+                <p>Wykorzystanie standardu Arrow jako formatu wymiany danych w pamięci, co eliminuje narzut serializacji
+                    przy współpracy z bibliotekami Python/R.</p>
+            </section>
+            <section>
+                <h3>6.3 Inne języki i WASM</h3>
+                <ul>
+                    <li><strong>Node.js, Java, C++, Rust, Go, R</strong> - oficjalne sterowniki.</li>
+                    <li><strong>DuckDB-Wasm:</strong> Pełna wydajność bazy danych bezpośrednio w przeglądarce
+                        internetowej.
+                    </li>
+                </ul>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>7. Rozszerzalność systemu</h2>
+            </section>
+            <section>
+                <h3>7.1 Dynamiczne moduły</h3>
+                <p>DuckDB posiada modularną strukturę, pozwalającą na ładowanie funkcji tylko wtedy, gdy są
+                    potrzebne.</p>
+                <pre><code class="language-sql">
+INSTALL spatial; -- Rozszerzenie geograficzne (GIS)
+LOAD spatial;
+
+INSTALL fts;     -- Full Text Search
+LOAD fts;
+                    </code></pre>
+            </section>
+            <section>
+                <h3>7.2 MotherDuck</h3>
+                <p>Usługa Managed DuckDB umożliwiająca hybrydowe zapytania: łączenie danych lokalnych z danymi
+                    przechowywanymi w chmurze w ramach jednej sesji.</p>
+            </section>
+        </section>
+
+        <section>
+            <section>
+                <h2>8. Podsumowanie i zastosowania</h2>
+            </section>
+            <section>
+                <h3>8.1 Kiedy wybrać DuckDB?</h3>
+                <div class="grid">
+                    <div class="highlight-box">
+                        <h4>Zalecane</h4>
+                        <ul>
+                            <li>Analityka ad-hoc.</li>
+                            <li>Potok danych (ETL/ELT).</li>
+                            <li>Aplikacje CLI i Desktop.</li>
+                            <li>Szybkie prototypowanie.</li>
+                        </ul>
+                    </div>
+                    <div class="highlight-box">
+                        <h4>Niezalecane</h4>
+                        <ul>
+                            <li>Systemy wysokotransakcyjne.</li>
+                            <li>Wielu równoległych zapisujących.</li>
+                            <li>Bardzo duże klastry rozproszone.</li>
+                        </ul>
+                    </div>
+                </div>
+            </section>
+            <section>
+                <h3>8.2 Wnioski końcowe</h3>
+                <p>DuckDB redefiniuje pojęcie lokalnej analityki, oferując wydajność systemów MPP (Massively Parallel
+                    Processing) w formie biblioteki uruchamianej na pojedynczym węźle.</p>
+            </section>
+        </section>
+
+    </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+<script>
+    Reveal.initialize({
+        hash: true,
+        plugins: [ RevealHighlight ],
+        slideNumber: 'c/t'
+    });
+</script>
+</body>
+</html>
