@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="pl">
+<head>
+    <meta charset="utf-8">
+    <title>dbt-core: narzędzie integracji danych</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reset.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/theme/blood.min.css">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/monokai.min.css">
+    <style>
+        :root { --r-main-font-size: 33px; --r-heading-text-transform: none; --dbt-orange: #FF6B4A; --dbt-navy: #03254C; --dbt-bg: #F9FAFB;}
+        .reveal h1 { font-size: 2.2em !important; color: var(--dbt-orange) !important; font-weight: 700 !important; }
+        .reveal h2 { font-size: 1.6em !important; border-bottom: 3px solid var(--dbt-orange); padding-bottom: 10px; font-weight: 700 !important; }
+        .reveal h3 { font-size: 1.3em !important; color: var(--dbt-orange) !important; font-weight: 600 !important; }
+        .reveal p, .reveal li { font-size: 1em; line-height: 1.6; color: #888; }
+        .highlight-box { background: rgba(0, 0, 0, 0.3); padding: 15px; border-radius: 8px; border-left: 5px solid #ff3e3e; text-align: left; margin: 15px 0; }
+        .reveal pre { width: 95% !important; font-size: 0.5em !important; margin: 10px auto; }
+        .reveal .slide-number { font-size: 0.5em !important; color: #888; }
+        .important { color: #2ecc71; font-weight: bold; }
+        code { color: #ff79c6 !important; }
+    </style>
+</head>
+<body>
+    <div class="reveal">
+        <div class="slides">
+
+            <section>
+                <section>
+                    <h1>dbt-core</h1>
+                    <h3>Silnik transformacji danych</h3>
+                </section>
+                <section>
+                    <h2>1.1 Filozofia dbt</h2>
+                    <p>dbt (Data Build Tool) to warstwa transformacji, która pozwala traktować kod SQL jak kod aplikacji.</p>
+                    <div class="highlight-box">
+                        <ul>
+                            <li><strong>Wersjonowanie:</strong> Git jako źródło prawdy.</li>
+                            <li><strong>Testowanie:</strong> Walidacja danych przed ich udostępnieniem.</li>
+                            <li><strong>CI/CD:</strong> Automatyczne wdrażanie zmian.</li>
+                        </ul>
+                    </div>
+                </section>
+                <section>
+                    <h2>1.2 ELT vs ETL</h2>
+                    <p>W tradycyjnym ETL transformacja odbywa się poza bazą. W dbt (ELT) transformacja dzieje się <strong>wewnątrz</strong> hurtowni danych.</p>
+                    <p class="important">Push-down computation: dbt wysyła kod SQL, baza wykonuje pracę.</p>
+                </section>
+                <section>
+                    <h2>1.3 Rola Analytics Engineer</h2>
+                    <p>Osoba, która stosuje praktyki Software Engineering (DRY, testy, dokumentacja) do modelowania danych.</p>
+                </section>
+                            <section>
+                <h2>1.2 Od SQL do Engineeringu</h2>
+                <p>dbt wprowadza do świata baz danych koncepcje znane z inżynierii oprogramowania:</p>
+                <ul>
+                    <li>Modułowość (kod wielokrotnego użytku).</li>
+                    <li>Automatyczne testowanie.</li>
+                    <li>Kontrola wersji (Git).</li>
+                    <li>Ciągła integracja (CI/CD).</li>
+                </ul>
+            </section>
+            <section>
+                <h2>1.3 Paradygmat ELT</h2>
+                <p>dbt nie jest narzędziem typu ETL. Działa w modelu <span class="important-text">ELT</span>.</p>
+                <p>Dane są najpierw ładowane do bazy (Extract & Load), a dbt wykonuje ich transformację (Transform)
+                    bezpośrednio w silniku bazy danych.</p>
+            </section>
+
+                </section>
+
+                    <section>
+            <section>
+                <h2>2. Architektura i Miejsce w Procesie</h2>
+                <p>Gdzie dbt znajduje się w Modern Data Stack?</p>
+            </section>
+            <section>
+                <h3>2.1 Miejsce dbt w rurociągu</h3>
+                <img src="https://docs.getdbt.com/img/docs/cloud-overview.jpg" class="dbt-arch" alt="dbt Overview">
+                <p><small>Grafika: Oficjalna dokumentacja dbt Cloud Overview</small></p>
+            </section>
+            <section>
+                <h3>2.2 dbt jako "Integration Tool"</h3>
+                <p>dbt stanowi warstwę spajającą surowe dane z narzędziami BI (Tableau, Looker, PowerBI).</p>
+                <div class="highlight-box">
+                    <strong>Integracja:</strong> dbt pobiera metadane z różnych źródeł, transformuje je i wystawia
+                    gotowe tabele "biznesowe".
+                </div>
+            </section>
+            <section>
+                <h3>2.3 Mechanizm Kompilacji</h3>
+                <p>dbt-core kompiluje pliki <code>.sql</code> oraz <code>.yml</code> do natywnego kodu SQL specyficznego
+                    dla Twojej bazy (np. DuckDB, Snowflake).</p>
+                <p>Wynik kompilacji znajduje się w folderze <code>target/</code>.</p>
+            </section>
+            <section>
+                <h3>2.4 Directed Acyclic Graph (DAG)</h3>
+                <p>Każdy projekt dbt to graf zależności. dbt wie, w jakiej kolejności uruchomić modele na podstawie
+                    funkcji <code>ref()</code>.</p>
+            </section>
+        </section>
+
+
+            <section>
+                <section>
+                    <h2>2. Inicjalizacja i Profiles</h2>
+                </section>
+                <section>
+                    <h3>2.1 Anatomia dbt init</h3>
+                    <p>Komenda <code>dbt init</code> buduje strukturę katalogów. Kluczowe pliki:</p>
+                    <ul>
+                        <li><code>dbt_project.yml</code>: Serce projektu.</li>
+                        <li><code>profiles.yml</code>: Dane dostępowe do bazy (trzymane poza Git).</li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>2.2 dbt_project.yml w detalu</h3>
+                    <pre><code class="language-yaml">
+name: 'my_lab_project'
+version: '1.0.0'
+config-version: 2
+profile: 'default' # Mapowanie do profiles.yml
+
+models:
+  my_project:
+    staging:
+      +materialized: view # Domyślnie widoki
+    marts:
+      +materialized: table # Domyślnie tabele
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>2.3 Zarządzanie Środowiskami (Targets)</h3>
+                    <p>W <code>profiles.yml</code> definiujemy cele (dev, prod, staging). Pozwala to na separację danych testowych od produkcyjnych.</p>
+                </section>
+                <section>
+                    <h3>2.4 Walidacja Połączenia</h3>
+                    <p><code>dbt debug</code> – komenda sprawdzająca profil, połączenie z bazą i wersję adaptera.</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>3. Dane Wejściowe: Seeds i Sources</h2>
+                </section>
+                <section>
+                    <h3>3.1 Czym są Seeds?</h3>
+                    <p>Pliki CSV w folderze <code>seeds/</code>. Przeznaczone dla danych statycznych, które nie zmieniają się często.</p>
+                    <div class="highlight-box">Uwaga: dbt nie jest narzędziem do ładowania Gigabajtów danych przez Seeds!</div>
+                </section>
+                <section>
+                    <h3>3.2 Automatyczne typowanie i błąd typowania</h3>
+                    <p>dbt wspiera automatyczne wykrywanie typów (sniffing), ale w pewnych okolicznościach zawodzi przy specyficznych formatach.</p>
+                </section>
+                <section>
+                    <h3>3.3 Rozwiązanie: Wymuszanie Typów (YAML)</h3>
+                    <pre><code class="language-yaml">
+seeds:
+  - name: customers
+    config:
+      column_types:
+        customer_id: bigint
+        registration_date: date
+        postal_code: varchar
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>3.4 Definiowanie Źródeł (Sources)</h3>
+                    <p>Sources pozwalają na nazwanie "surowych" tabel w bazie. Pozwala to na śledzenie świeżości danych (Freshness).</p>
+                </section>
+                <section>
+                    <h3>3.5 Funkcja source() w kodzie</h3>
+                    <pre><code class="language-sql">
+-- models/staging/stg_books.sql
+SELECT * FROM {{ source('raw_data', 'books') }}
+                    </code></pre>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>4. Modele i Materializacje</h2>
+                </section>
+                <section>
+                    <h3>4.1 Serce dbt: SELECT</h3>
+                    <p>Model to po prostu plik SQL. Nie piszesz DDL. dbt zawija Twój SELECT w <code>CREATE TABLE/VIEW AS ...</code>.</p>
+                </section>
+                <section>
+                    <h3>4.2 Funkcja ref() i DAG</h3>
+                    <p>Najważniejsza funkcja dbt. Buduje zależności między modelami.</p>
+                    <pre><code class="language-sql">
+SELECT * FROM {{ ref('stg_customers') }}
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>4.3 DAG (Lineage)</h3>
+                    <p>Dzięki <code>ref()</code> dbt wie, że model B musi zostać zbudowany po modelu A. Zapobiega to błędom brakujących tabel.</p>
+                </section>
+                <section>
+                    <h3>4.4 Materializacja: View</h3>
+                    <p>Domyślna. Szybka w budowie, wolna przy odczycie (SQL uruchamiany za każdym razem).</p>
+                </section>
+                <section>
+                    <h3>4.5 Materializacja: Table</h3>
+                    <p>Fizyczny zapis danych. Wydajny przy odczycie, zajmuje miejsce na dysku.</p>
+                </section>
+                <section>
+                    <h3>4.6 Materializacja: Incremental (Deep Dive)</h3>
+                    <p>Pozwala dołączać tylko nowe rekordy. Kluczowe dla dużych zbiorów (BigData).</p>
+                    <pre><code class="language-sql">
+{{ config(materialized='incremental', unique_key='id') }}
+SELECT * FROM ...
+{% if is_incremental() %}
+  WHERE updated_at > (select max(updated_at) from {{ this }})
+{% endif %}
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>4.7 Materializacja: Ephemeral</h3>
+                    <p>Modele efemeryczne nie istnieją w bazie. Są wstrzykiwane jako CTE do modeli zależnych.</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>5. Potęga Jinja i Makr</h2>
+                </section>
+                <section>
+                    <h3>5.1 Czym jest Jinja?</h3>
+                    <p>Język szablonów, który dodaje do SQL pętle, warunki i zmienne.</p>
+                </section>
+                <section>
+                    <h3>5.2 Zmienne (Variables)</h3>
+                    <p>Definiowane w <code>dbt_project.yml</code> lub przekazywane z CLI (<code>--vars</code>).</p>
+                </section>
+                <section>
+                    <h3>5.3 Przykład pętli FOR</h3>
+                    <pre><code class="language-sql">
+{% set payment_methods = ["bank_transfer", "credit_card", "gift_card"] %}
+
+select
+    order_id,
+    {% for method in payment_methods %}
+    sum(case when method = '{{method}}' then amount else 0 end) as {{method}}_amount
+    {{ "," if not loop.last }}
+    {% endfor %}
+from {{ ref('raw_payments') }}
+group by 1
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>5.4 Własne Makra</h3>
+                    <p>Reużywalne funkcje SQL trzymane w folderze <code>macros/</code>.</p>
+                </section>
+                <section>
+                    <h3>5.5 Pakiety (dbt Packages)</h3>
+                    <p>Zewnętrzne biblioteki (np. <code>dbt-utils</code>). Instalowane przez <code>dbt deps</code>.</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>6. Testowanie i Jakość Danych</h2>
+                </section>
+                <section>
+                    <h3>6.1 Testy Generyczne</h3>
+                    <p>Implementowane w YAML. Cztery standardowe testy dbt:</p>
+                    <ul>
+                        <li><code>unique</code></li>
+                        <li><code>not_null</code></li>
+                        <li><code>accepted_values</code></li>
+                        <li><code>relationships</code></li>
+                    </ul>
+                </section>
+                <section>
+                    <h3>6.2 Przykład Testu Relationships</h3>
+                    <pre><code class="language-yaml">
+columns:
+  - name: customer_id
+    tests:
+      - relationships:
+          to: ref('stg_customers')
+          field: customer_id
+                    </code></pre>
+                </section>
+                <section>
+                    <h3>6.3 Testy Osobliwe (Singular)</h3>
+                    <p>Pliki SQL w folderze <code>tests/</code>. Jeśli zapytanie zwróci jakikolwiek wiersz – test kończy się porażką.</p>
+                </section>
+                <section>
+                    <h3>6.4 Severity: Warn vs Error</h3>
+                    <p>Konfiguracja pozwalająca zdecydować, czy błąd testu ma zatrzymać pipeline, czy tylko ostrzec.</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>7. Dokumentacja i Lineage</h2>
+                </section>
+                <section>
+                    <h3>7.1 dbt docs generate</h3>
+                    <p>Analizuje projekt i buduje pliki <code>manifest.json</code> oraz <code>catalog.json</code>.</p>
+                </section>
+                <section>
+                    <h3>7.2 dbt docs serve</h3>
+                    <p>Uruchamia lokalny serwer WWW z interaktywną dokumentacją i grafem DAG.</p>
+                </section>
+                <section>
+                    <h3>7.3 Opisy (Descriptions)</h3>
+                    <p>Dokumentowanie kolumn i modeli bezpośrednio w YAML – staje się częścią "Data Catalog".</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>8. Snapshots: Śledzenie Zmian</h2>
+                </section>
+                <section>
+                    <h3>8.1 SCD Type 2</h3>
+                    <p>Mechanizm historyzacji danych (kiedy rekord się zmienił, dbt tworzy nowy wiersz z datą ważności).</p>
+                </section>
+                <section>
+                    <h3>8.2 Strategia: Check vs Timestamp</h3>
+                    <p>Decyzja o tym, na podstawie czego dbt ma wykryć zmianę w danych źródłowych.</p>
+                </section>
+            </section>
+
+            <section>
+                <section>
+                    <h2>9. Praca z CLI i Selektory</h2>
+                </section>
+                <section>
+                    <h3>9.1 dbt run vs dbt build</h3>
+                    <p><code>build</code> to nowoczesna komenda łącząca: run, test, snapshot i seed.</p>
+                </section>
+                <section>
+                    <h3>9.2 Składnia Selekcji</h3>
+                    <p>Uruchamianie fragmentów projektu:</p>
+                    <ul>
+                        <li><code>dbt run --select stg_books+</code> (model i wszystko po nim).</li>
+                        <li><code>dbt run --select +fct_sales</code> (model i wszystkie jego źródła).</li>
+                        <li><code>dbt run --exclude example</code> (pomiń folder).</li>
+                    </ul>
+                </section>
+            </section>
+
+
+        </div>
+    </div>
+
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/reveal.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.5.0/plugin/highlight/highlight.min.js"></script>
+    <script>
+        Reveal.initialize({
+            hash: true,
+            slideNumber: 'c/t',
+            plugins: [ RevealHighlight ],
+            transition: 'convex',
+            width: 1200,
+            height: 700
+        });
+    </script>
+</body>
+</html>

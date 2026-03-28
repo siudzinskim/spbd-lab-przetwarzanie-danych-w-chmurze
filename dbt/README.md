@@ -2,93 +2,26 @@
 
 W tym ćwiczeniu będziemy opracowywać nowoczesny, minimalistyczny, platform-agnostic system przetwarzania i analizy
 danych.
-Wykorzystywana infrastruktura będzie oparta o AWS, jednak wykorzystywać będzie narzędzia open-source: `DuckDB` oraz
+Wykorzystywana infrastruktura będzie oparta o GCP, jednak wykorzystywać będzie narzędzia open-source: `DuckDB` oraz
 `dbt`.
 
-W celu utworzenia infrastruktury będziemy wykorzystywać elementy utworzone w ramach poprzednich laboratoriów, jednak
-wszystkie wymagane komponenty będą dostarczone w ramach tego repozytorium, wystarczy jedynie auaktualnić konfigurację.
+W celu utworzenia infrastruktury będziemy wykorzystywać elementy utworzone w ramach poprzednich laboratoriów. Aby uruchomić 
+maszynę wirtualną, na której będziemy pracować przejdź do laboratorium w ścieżce:
+
+```
+terraform/lab-03
+```
+
+oraz uruchom polecenia:
+
+```
+terraform init
+terraform apply
+```
+
+Po uruchomieniu maszyny skrypt terraform wyświetli informację z adresem serwera vscode oraz hasłem dostępowym.
 
 ## Lab01
-
-W tym laboratorium utworzymy wymaganą infrastrukturę, zawierającą:
-
-#### Komponenty związane z S3 (z pliku `s3.tf`)
-
-* **`aws_s3_bucket.public_bucket`**:
-    * Jest to publicznie dostępny bucket S3, który służy do przechowywania danych.
-    * Nazwa bucketa to `"spdb-siudzinskim-public"`.
-    * `acl = "public-read"`: To sprawia, że bucket jest publicznie czytelny.
-
-* **`aws_s3_bucket_public_access_block.public_bucket_access_block`**:
-    * Ten komponent konfiguruje blokady dostępu publicznego dla bucketa S3.
-    * Ustawienia `block_public_acls`, `block_public_policy`, `ignore_public_acls`, `restrict_public_buckets` są
-      ustawione na `false`, co oznacza, że bucket jest publicznie dostępny.
-
-* **`aws_s3_bucket_policy.public_bucket_policy`**:
-    * Jest to polityka dostępu, która definiuje, kto i co może robić z zasobami w buckecie S3.
-    * W tym przypadku polityka zezwala wszystkim użytkownikom (`Principal = "*"`) na odczyt obiektów z tego bucketa (
-      `Action = ["s3:GetObject"]`).
-
-#### Komponenty związane z EC2 (z pliku `ec2.tf`)
-
-* **`data.aws_ami.amazon_linux`**:
-    * Źródło danych, które wyszukuje najnowszą wersję obrazu Amazon Machine Image (AMI) dla systemu Amazon Linux 2.
-    * Parametry wyszukiwania zawężają wynik do obrazów o architekturze `x86_64` i typie wirtualizacji `hvm`.
-
-* **`aws_instance.lab_instance`**:
-    * Instancja maszyny wirtualnej EC2.
-    * Używa obrazu znalezionego w `data.aws_ami.amazon_linux`.
-    * Typ instancji to `t2.micro`.
-    * Jest umieszczona w podsieci zdefiniowanej przez `subnet_id`.
-    * `key_name = "kp"` - klucz SSH.
-    * Ustawienie `associate_public_ip_address = true` powoduje przypisanie publicznego adresu IP do instancji.
-    * Nazwa tej instancji, ustawiana przez tag `Name`, to `"lab-ec2"`.
-    * Skrypt uruchamiany na starcie instancji znajduje się w pliku `startup.sh` i jest kodowany przy użyciu funkcji
-      `filebase64()`.
-    * `security_groups = [aws_security_group.allow_ssh.id]` - przypisana grupa bezpieczeństwa.
-
-* **`aws_ebs_volume.example`**:
-    * Wolumin EBS o rozmiarze 10 GB i typie `gp2`, który będzie dołączony do instancji EC2.
-    * Nazwa tego woluminu to `"lab-volume"`.
-
-* **`aws_volume_attachment.ebs_att`**:
-    * Definicja dołączenia woluminu EBS do instancji EC2.
-    * Wolumin `aws_ebs_volume.example` jest dołączany do instancji `aws_instance.lab_instance` jako urządzenie
-      `/dev/sdh`.
-
-* **`aws_security_group.allow_ssh`**:
-    * Grupa bezpieczeństwa, która kontroluje ruch sieciowy do instancji EC2.
-    * Umożliwia ruch przychodzący na porcie 22 (SSH) z dowolnego adresu IP (`cidr_blocks = ["0.0.0.0/0"]`).
-    * Umożliwia cały ruch wychodzący.
-    * `vpc_id = aws_vpc.main.id` - przypisanie do vpc.
-    * Nazwa tej grupy bezpieczeństwa to `"allow_ssh"`.
-
-### Podsumowanie
-
-W folderze `lab-dbt01` zdefiniowane są komponenty do stworzenia: publicznego bucketa S3, grupy bezpieczeństwa, woluminu
-EBS, oraz instancji EC2 z dołączonym woluminem. Dodatkowo kod definiuje źródło danych dla obrazu AMI. Komponenty te
-tworzą podstawową infrastrukturę na AWS.
-
-
-> UWAGA: podczas laboratorium korzystaj koniecznie z systemu Linux, w celu uniknięcia problemów z kompatybilnością.
-
-### Instrukcja:
-
-1. Zaloguj się do konsoli `AWS Academy Learner Lab` i uruchom laboratorium:
-2. W zakładce `AWS Details` znajduje się sekcja `Cloud Accsess`, rozwiń `AWS CLI`, kilkając przycisk `Show`, a następnie
-   skopiuj dane logowania i wklej je do pliku `~/.aws/credentials`
-3. W konsoli AWS przejdź do `Key Pairs` w sekcji `EC2 -> Network & Security`, a następnie utwórz parę o nazwie `kp`.
-   Podczas tworzenia plik zostanie pobrany do folderu `Downloads`.
-4. Przejdź do folderu `lab-dbt01`, a następnie utwórz elementy infrastruktury za pomocą Terraform.
-5. Zwróć uwagę na zawartość pliku `startup.sh`, wytłumacz jaka jaest jego funkcja i jakie czyności zostaną wykonane
-6. Utwórz tunel SSH do utworzonej instancji na porcie 8888, który umożliwi połączenie z usługą uruchomioną na zdalnej
-   maszynie. Pomocny będzie terraform output. Wytłumacz jak działa taki tunel?
-7. Otwórz przeglądarkę i połącz się z localhost:8888
-8. W oknie przeglądarki w aplikacji VSCode utwórz plik `hello`, a następnie przejdź do konsoli AWS i usuń wirtualną
-   maszynę. Ponownie utwórz ją korzystając z polecenia `terraform apply`. Czy po ponownym podłączeniu do serwera VSCode
-   plik `hello` istnieje?
-
-## Lab02
 
 W tym laboratorium zajmiemy się generowaniem danych testowych. Jest to praktyka, którą możemy wykorzystywać kiedy znamy
 strukturę danych, jednak nie mamy jeszcze dostępu do danych testowych lub produkcyjnych.
@@ -120,7 +53,7 @@ Pozostałe dane będą syntetyczne i będziemy generować je za pomocą generato
 
 1. Sklonuj repozytorium (https://github.com/siudzinskim/spbd-lab-przetwarzanie-danych-w-chmurze.git) do lokalnego
    folderu na serwerze VSCode.
-2. Przejdź do folderu `dbt/lab-dbt02` i uruchom:
+2. Przejdź do folderu `spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01` i uruchom:
 
 ```shell
 python get_books.py
@@ -128,7 +61,7 @@ python get_books.py
 
 &nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; W folderze powinny pojawić się 2 pliki: `books.csv` oraz `bookstore.ddb`.
 
-3. UWAGA! Plik `books.csv` jest wymagany przez generator, bez niego wygenerowane dane będę nieprawidłowe!
+3. UWAGA! Plik `books.csv` jest wymagany przez generator, bez niego wygenerowane dane będą nieprawidłowe!
 4. Uruchom:
 
 ```shell
@@ -142,6 +75,10 @@ python generator.py
 ```shell
 curl https://install.duckdb.org | sh
 export PATH=$PATH:/config/.duckdb/cli/latest/
+```
+Aby duckdb był dostępny w każdej sesji dodaj koniecznie eksport zmiennej do pliku `~/.bashrc`:
+```shell
+echo 'export PATH=$PATH:/config/.duckdb/cli/latest/' >> ~/.bashrc
 ```
 
 6. Uruchom DuckDB podłączając się do bazy `bookstore.ddb`:
@@ -161,20 +98,12 @@ duckdb bookstore.ddb
 .import customers.csv customers
 ```
 
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Następnie wykonaj kwerendę `from customers;`. Zwróć uwagę na liczbę kolumn.
-
-11. Spróbuj wykonać:
-
-```
-.import customers.csv customers --csv
-```
-
-&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp; Co należy zrobić najpierw, aby umożliwić wykonanie polecenia?
+11. Wykonaj kwerendę `from customers;`. 
 
 12. Spróbuj wykonać import pliku `transactions.json`
 13. Wykonaj polecenie:
 
-```python
+```sql
 CREATE OR REPLACE TABLE transactions AS
 SELECT * FROM read_json_auto('transactions.json');
 ```
@@ -193,16 +122,34 @@ Connected to a transient in-memory database.
 ```
 
 16. Podłącz się ponownie do bazy wykonując `.open bookstore.ddb` i wylistuj dostępne tabele.
-17. Zamknij połączenie z bazą.
+17. Teraz spróbujemy utworzyć zewnętrzną tabelę (widokiem):
+```sql
+CREATE VIEW transactions_external AS
+SELECT *
+FROM read_json('transactions.json');
+```
+18. Wykonaj zapytania:
+```sql
+from transactions;
+```
+oraz
+```sql
+from transactions_external;
+```
+19. Następnie zmień nazwę pliku `transactions.json` na `_transactions.json` i ponownie wykonaj:
+```sql
+from transactions;
+```
+oraz
+```sql
+from transactions_external;
+```
+Co się wydarzyło?
+20. Zamknij połączenie z bazą danych
 
-## Lab03
+## Lab02
 
-To laboratorium pokazuje w jaki sposób można zrealizować funkcję generatora, która umożliwi uruchomienie generatora jako
-Lambda. Niestety ze względu na ograniczenia środowiskowe funkcjonalności są ograniczone.
-
-## Lab04
-
-W czwartej części laboratorium utworzymy nowy projekt dbt.
+W kolejnej części laboratorium zapoznamy się z dbt. Najpierw utworzymy nowy projekt dbt.
 
 **Cel:** To laboratorium ma na celu zapoznanie Cię z podstawowymi koncepcjami i funkcjami `dbt` (Data Build Tool) przy
 użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji danych dla fikcyjnej księgarni.
@@ -210,40 +157,50 @@ użyciu DuckDB jako silnika bazy danych. Zbudujemy prosty pipeline transformacji
 **Wymagania wstępne:**
 
 1. **Skonfigurowany VSCode Server:** Upewnij się, że masz dostęp do serwera VSCode uruchomionego w ramach laboratorium
-   `lab-dbt01`.
-2. **Pliki startowe:** Korzystając z generatora utworzonego w ramach laboratorium `lab-dbt01`, przygotuj następujące
+   `terraform/lab-03`.
+2. **Pliki startowe:** Korzystając z generatora utworzonego w ramach laboratorium `dbt/lab-dbt01`, przygotuj następujące
    pliki:
     * `bookstore.ddb`: Baza zawierająca tylko tabelę `books`.
     * `customers.csv`: Plik CSV z danymi klientów.
     * `transactions.json`: Plik JSON z danymi transakcji.
+
+> Nota: możesz po prostu skopiować pliki z poprzedniego laboratorium 
 
 **Struktura projektu:**
 
 Na potrzeby tego laboratorium zakładamy następującą strukturę plików i katalogów:
 
 ```shell
-lab-dbt04/dbt_bookstore_lab/
-├── data/
-│   ├── bookstore.ddb
-│   ├── customers.csv
-│   └── transactions.json
-├── bookstore_dwh.ddb
-└── dbt_project/  <-- Tutaj zainicjujemy projekt dbt
+lab-dbt02/
+└──dbt_bookstore_lab/
+   ├── data/
+   │   ├── .
+   │   ├── bookstore.ddb
+   │   ├── customers.csv
+   │   └── transactions.json
+   ├── bookstore_dwh.ddb # ten plik jeszcze nie istnieje, zostanie utworzony na kolejnych etapach
+   └── dbt_project/  <-- Tutaj zainicjujemy projekt dbt
+
 ```
 
 Przed rozpoczęciem pracy utwórz foldery oraz skopiuj do nich wymagane pliki za pomocą następujących komend:
 ```shell
 cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt
-mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
-cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data
+mkdir -p /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/customers.csv /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
+cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/transactions.json /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data
 ```
 > UWAGA! Nie należy tworzyć folderu `dbt_project` ani pliku `bookstore_dwh.ddb`.
 
 #### Krok 1: Inicjalizacja projektu dbt
 
-1. Przejdź do katalogu `dbt_bookstore_lab` w terminalu.
+1. Przejdź do katalogu `dbt_bookstore_lab` w terminalu. Po sprawdzeniu ścieżki powinieneś znajdować się w następującej lokalizacji:
+```shell
+$ pwd
+/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab
+```
+
 2. Uruchom komendę inicjalizującą projekt `dbt`:
 
    ```bash
@@ -251,7 +208,23 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/trans
    ```
 
    Wybierz `duckdb` z listy adapterów, gdy zostaniesz o to poproszony. `dbt` utworzy podstawową strukturę katalogów
-   wewnątrz `dbt_project/` (m.in. `models`, `seeds`, `tests`).
+   wewnątrz `dbt_project/` (m.in. `models`, `seeds`, `tests`). Po prawidłowym wykonaniu polecenia w folderze powinna znaleźć się następująca struktura plików:
+```shell
+   .
+   └── dbt_project/
+       ├── analyses
+       ├── dbt_project.yml
+       ├── macros
+       ├── models
+       │   └── example
+       │       ├── my_first_dbt_model.sql
+       │       ├── my_second_dbt_model.sql
+       │       └── schema.yml
+       ├── README.md
+       ├── seeds
+       ├── snapshots
+       └── tests
+```
 
 #### Krok 2: Konfiguracja połączenia (profiles.yml)
 
@@ -263,7 +236,7 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/trans
    ```
 2. Dodaj konfigurację dla DuckDB, wskazując ścieżkę do pliku `bookstore_dwh.ddb`. Pamiętaj, aby użyć **pełnej (absolutnej)
    ścieżki** do pliku `bookstore_dwh.ddb` lub ścieżki względnej *do miejsca, z którego uruchamiasz `dbt`*. Dla uproszczenia
-   użyjmy ścieżki względnej zakładając, że `dbt` będzie uruchamiane z katalogu `dbt_bookstore_lab/dbt_project/`:
+   użyjmy ścieżki bezwzględnej:
 
    ```yaml
    # ~/.dbt/profiles.yml
@@ -271,7 +244,7 @@ cp /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/trans
      outputs:
        dev:
          type: duckdb
-         path: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/data/bookstore_dwh.ddb
+         path: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/data/bookstore_dwh.ddb
          threads: 2
    
      target: dev
@@ -329,7 +302,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
 
 3. **(Opcjonalnie) Inspekcja:** Możesz użyć DuckDB CLI, aby sprawdzić, czy tabela została utworzona:
     ```bash
-    duckdb ....... # Uruchom z katalogu dbt_project/
+    duckdb ....... # odnajdź plik hurtowni danych ładowanych za pomocą dbt iw miejscu kropek wstaw odpowiednią ścieżkę 
     ```
     Wewnątrz DuckDB CLI:
     ```sql
@@ -368,7 +341,7 @@ danych. Użyjemy tego mechanizmu do załadowania danych klientów.
             description: "Tabela zawierająca informacje o książkach."
             # Możesz tutaj dodać testy dla danych źródłowych!
             columns:
-              - name: book_id
+              - name: index
                 tests:
                   - unique
                   - not_null
@@ -563,7 +536,7 @@ Teraz, gdy modele są zdefiniowane, możemy je uruchomić.
      - name: stg_books
        description: "Model stagingowy dla książek."
        columns:
-         - name: book_id
+         - name: index
            description: "Unikalny identyfikator książki."
            tests:
              - unique
@@ -598,6 +571,7 @@ Teraz, gdy modele są zdefiniowane, możemy je uruchomić.
                  to: ref('stg_customers')
                  field: customer_id
    ```
+   
     * `unique`, `not_null`: Wbudowane testy generyczne.
     * `relationships`: Wbudowany test sprawdzający spójność referencyjną (klucze obce).
 
@@ -659,14 +633,25 @@ Gratulacje! Ukończyłeś podstawowe laboratorium `dbt` z DuckDB. Nauczyliście 
 * Dowiedz się więcej o **snapshotach** do śledzenia zmian w danych źródłowych.
 * Zapoznaj się z zaawansowanymi konfiguracjami w `dbt_project.yml`.
 
-## Lab05
+---
+> [!WARNING]  
+>  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+> [!WARNING]  
+> Poniższe instrukcje laboratoriów nie zostały jeszcze zmigrowane do chmury GCP. Poniższe instrukcje nie będą działały prawidłowo! 
+
+> [!WARNING]  
+>  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
+
+---
+
+## Lab 03
 
 W tej części laboratorium uruchomimy instancję Apache Airflow, korzystając z najprostszej możliwej konfiguracji, czyli
 korzystając z plikowej bazy danych SQLite oraz trybu standalone. Następnie utworzymy DAG umożliwiający uruchomienie 
 procesu przetwarzania danych za pomocą `dbt`.
 
 ### Uruchomienie serwera Apache Airflow
-> UWAGA! Zanim przejdziesz do realizacji ćwiczenia przejdź do konsoli AWS i ręcznie usuń wirtualną maszynę. Zaleca się wcześniejsze wykonanie kopii zapasowej w zasobniku S3.
 
 ---
 
@@ -690,7 +675,7 @@ aws s3 cp /tmp/spdb-bckp-* s3://<nazwa-twojego-bucketu>/bckp/
    * Zaaplikuj zmiany w infrastrukturze. 
 2. Korzystając z wartości `vscode-tunnel-cmd` zwróconej przez terraform aby uruchomić tunel.
 3. Aby uruchomić serwer Airflow podłącz się do serwera vscode i otwórz terminal, a następnie przejdź do ścieżki 
-`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
+`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt03/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
 zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i wykonaj polecenie:
     ```shell
     ./init.sh
@@ -832,13 +817,13 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
 9. Spróbuj uruchomić DAG z domyślnymi parametrami. Dlaczego nie działa?
 10. Aby naprawić problem z brakiem dostępności projektu dbt utwórz link symboliczny:
    ```shell
-       ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt04/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
+       ln -s /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/dbt_bookstore_lab/ /config/workspace/dbt_bookstore_lab
    ```
 11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
 
 
-## Lab 06
+## Lab 04
 
 W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony. 
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
@@ -866,7 +851,7 @@ from airflow.utils.dates import days_ago
 
 # --- Default Configuration ---
 # Ścieżka do skryptu generatora
-GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt02/generator.py')
+GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/generator.py')
 # Ścieżka do folderu wyjściowego dla dbt_bookstore_lab
 DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
 # Domyślna ścieżka do projektu dbt (używana przez dbt_dag_run)

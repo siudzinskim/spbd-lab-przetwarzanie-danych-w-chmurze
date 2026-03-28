@@ -26,7 +26,7 @@ Dobrą praktyką jest uruchomienie serwera w tle, aby działał nawet po zamkni�
 nohup airflow standalone &
 ```
 
-Po pierwszym uruchomieniu, hasło do logowania zostanie wygenerowane i zapisane w pliku `~/airflow/standalone_admin_password.txt`.
+Po pierwszym uruchomieniu, hasło do logowania zostanie wygenerowane i zapisane w pliku `~/airflow/simple_auth_manager_passwords.json.generated`.
 
 ## 3. Konfiguracja
 

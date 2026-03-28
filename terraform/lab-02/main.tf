@@ -4,31 +4,20 @@ provider "google" {
   region  = var.region
 }
 
-# Pobranie zawartości pliku kubeconfig z GCS
-# Nazwa bucketu jest pobierana z zmiennej wejściowej
-data "google_storage_bucket_object_content" "kubeconfig" {
-  bucket = "${var.project_id}-k8s-config"
-  name   = "kubeconfig"
-}
-
-# Pobranie zawartości pliku z tokenem do dashboardu
-data "google_storage_bucket_object_content" "dashboard_token" {
-  bucket = "${var.project_id}-k8s-config"
-  name   = "dashboard_token.txt"
-}
-
 # Zapisanie pobranej zawartości kubeconfig do tymczasowego pliku w folderze .tmp
 # Provider kubectl będzie używał tego pliku do uwierzytelnienia.
 # Użycie nazwy bucketa w nazwie pliku zapewnia unikalność.
 resource "local_file" "kubeconfig" {
   content  = data.google_storage_bucket_object_content.kubeconfig.content
   filename = "${path.module}/.tmp/kubeconfig_${var.project_id}-k8s-config.tmp"
+  # filename = "${path.module}/.tmp/kubeconfig_${data.terraform_remote_state.lab_01.outputs.bucket_name}.tmp"
 }
 
 # Konfiguracja providera kubectl, który pozwala na aplikowanie manifestów YAML.
 # Wskazujemy na tymczasowy plik kubeconfig.
 provider "kubectl" {
   config_path = local_file.kubeconfig.filename
+  # config_context = data.google_storage_bucket_object_content.kubeconfig.content
 }
 
 # Utworzenie zasobu Ingress na podstawie pliku YAML z folderu config
@@ -37,7 +26,7 @@ provider "kubectl" {
 resource "kubectl_manifest" "dashboard_ingress" {
   # Zależność od zasobu local_file zapewnia, że plik zostanie utworzony
   # zanim kubectl spróbuje go użyć.
-  depends_on = [local_file.kubeconfig]
-  
+  depends_on = [local_file.kubeconfig, kubernetes_secret.dashboard_tls]
+
   yaml_body = file("${path.module}/config/dashboard-ingress.yaml")
 }

@@ -14,6 +14,11 @@ output "ssh_command" {
   value       = "gcloud compute ssh --project ${var.project_id} --zone ${var.zone} ${google_compute_instance.k8s_node.name}"
 }
 
+output "start_vm_command" {
+  description = "Komenda do uruchomienia maszyny wirtualnej"
+  value       = "gcloud compute instances start ${google_compute_instance.k8s_node.name} --project ${var.project_id} --zone ${var.zone}"
+}
+
 output "kubeconfig_path" {
   description = "Rekomendowana komenda do skopiowania konfiguracji k8s"
   value       = "gs://${google_storage_bucket.config_bucket.name}/kubeconfig"

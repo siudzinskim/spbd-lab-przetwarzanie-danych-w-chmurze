@@ -13,3 +13,13 @@ output "dashboard_token" {
   value       = data.google_storage_bucket_object_content.dashboard_token.content
 }
 
+output "vscode_url" {
+  description = "Adres URL do serwera VS Code (HTTPS)."
+  value       = "http://${local.kubeconfig_server_ip}:8443"
+}
+
+output "vscode_password" {
+  description = "Hasło do logowania do VS Code Server."
+  value       = var.vscode_password
+}
+

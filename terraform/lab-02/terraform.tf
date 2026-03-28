@@ -4,7 +4,7 @@ terraform {
 
   # Konfiguracja zdalnego przechowywania stanu dla lab-02
   backend "gcs" {
-    bucket  = "tu-wpisz-nazwe-twojego-bucketu-na-state" # Ten sam bucket co w lab-01
+    bucket  = "spdb-2026-tf-state" # Ten sam bucket co w lab-01
     prefix  = "terraform/lab-02/state" # INNA ścieżka dla tego modułu
   }
 
@@ -31,6 +31,10 @@ terraform {
     helm = {
       source  = "hashicorp/helm"
       version = ">= 2.5"
+    }
+    tls = {
+      source  = "hashicorp/tls"
+      version = ">= 4.0"
     }
   }
 }
