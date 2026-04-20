@@ -804,6 +804,39 @@ gsutil cp /tmp/spdb-bckp-* gs://<nazwa-twojego-bucketu>/bckp/
 11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
 
+### Analiza wykonania i efektów
+
+Po poprawnym uruchomieniu DAGa `dbt_dag_run`, warto przeanalizować, co właściwie się stało "pod maską" oraz jakie są rezultaty tej operacji.
+
+13. **Analiza logów:** W interfejsie Airflow kliknij na ostatnie udane wykonanie DAGa, a następnie wybierz zadanie `dbt_run`. Kliknij przycisk **Log**.
+    - Przejrzyj logi. Jakie modele zostały uruchomione? 
+    - Znajdź wpis dotyczący `fct_book_transactions`. Czy został utworzony jako `VIEW` czy `TABLE`?
+    - Zwróć uwagę na czas trwania poszczególnych zadań.
+
+14. **Produkty wykonania:** dbt nie tylko uruchamia SQL, ale również generuje pliki pomocnicze.
+    - Przejdź do terminala VSCode i sprawdź zawartość folderu `dbt_project/target/`. Znajdziesz tam m.in. skompilowane zapytania SQL w folderze `compiled` oraz zapytania, które zostały faktycznie wykonane w folderze `run`.
+    - Sprawdź plik `dbt_project/target/run/dbt_project/models/fact/fct_book_transactions.sql`. Jak wyglądał finalny kod SQL wysłany do DuckDB? (zauważ, że `{{ ref(...) }}` zostały zastąpione konkretnymi nazwami tabel).
+
+15. **Weryfikacja bazy danych:** Ponownie połącz się z bazą danych `bookstore_dwh.ddb` za pomocą DuckDB CLI:
+    ```shell
+    duckdb /config/workspace/dbt_bookstore_lab/data/bookstore_dwh.ddb
+    ```
+    - Wykonaj `.tables`. Czy widzisz wszystkie modele stagingowe oraz tabelę faktów?
+    - Sprawdź liczbę rekordów w `fct_book_transactions`: `SELECT count(*) FROM fct_book_transactions;`.
+
+16. **Idempotentność (powtórne uruchomienie):** Uruchom DAG `dbt_dag_run` ponownie (przycisk `Trigger DAG`).
+    - Po zakończeniu sprawdź logi zadania `dbt_run`. 
+    - Czy dbt wykonało te same operacje? Tak, dbt domyślnie nadpisuje istniejące tabele/widoki (operacja `CREATE OR REPLACE`).
+    - Sprawdź ponownie liczbę rekordów w bazie. Czy uległa zmianie? (Nie powinna, jeśli dane źródłowe się nie zmieniły). To kluczowa cecha dobrze zaprojektowanego procesu ELT – jest on idempotentny.
+
+17. **Analiza testów:** Sprawdź logi zadania `dbt_test`.
+    - Ile testów zostało wykonanych? 
+    - Co się dzieje w logach, gdy test przechodzi pomyślnie? dbt wykonuje zapytanie `SELECT count(*) FROM ... WHERE <warunek_błędu>`. Jeśli wynik to 0, test przechodzi.
+
+> PYTANIE: Co by się stało w Airflow, gdyby jeden z testów w zadaniu `dbt_test` nie przeszedł (FAIL)? Czy zadanie `dbt_docs_generate` zostałoby uruchomione?
+
+> PYTANIE: Gdzie dbt przechowuje informacje o tym, które modele są widokami, a które tabelami, skoro w kodzie SQL modeli stagingowych użyliśmy `materialized='table'`, a w `dbt_project.yml` nie ma o tym wzmianki?
+
 
 ## Lab 04
 
@@ -811,12 +844,60 @@ W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje d
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
 Można założyć, że symulacja imituje działanie pobierania danych z API systemu zawierającego nowych użytkowników i ich transakcje.
 
-W tym celu będziemy uruchamiać skrypt, podobnie jak w laboratorium 02, z tym, że wykorzystamy dodatkowe parametry wykonania skryptu generatora, jak w poniższym przykładzie:
+W tym celu będziemy uruchamiać skrypt, podobnie jak w laboratorium 02, z tym, że wykorzystamy dodatkowe parametry wykonania skryptu generatora. Przed uruchomieniem należy przejść do folderu z generatorom oraz wyeksportować zmienne środowiskowe, które pozwolą na dynamiczne określenie daty i nazw plików:
+
 ```shell
-python generator.py --generate all --customers-offset 25052000000 --transactions-offset 25052000000 --customers-output /config/workspace/dbt_bookstore_lab/customers-250520.csv --transactions-output /config/workspace/dbt_bookstore_lab/transactions-250520.json --start-date 2025-05-19 --end-date 2025-05-19
+cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01
+export CURRENT_DATE=$(date +%y%m%d)
+export DATE_DASH=$(date +%Y-%m-%d)
+
+python generator.py \
+  --generate all \
+  --customers-offset ${CURRENT_DATE}000000 \
+  --transactions-offset ${CURRENT_DATE}000000 \
+  --customers-output /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv \
+  --transactions-output /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json \
+  --start-date ${DATE_DASH} \
+  --end-date ${DATE_DASH}
 ```
 
-Powyższe zapytanie wygeneruje dodatkowe pliki zawierające zarówno dane o nowo zarejestrrowanych klientach, jak i ich transakcjach. Pliki zostaną zapisane do nowego pliku csv/json.
+Powyższe zapytanie wygeneruje dodatkowe pliki zawierające zarówno dane o nowo zarejestrowanych klientach, jak i ich transakcjach. Pliki zostaną zapisane do nowego pliku csv/json z dzisiejszą datą w nazwie.
+
+### Weryfikacja wygenerowanych danych
+
+Przed przystąpieniem do automatyzacji procesu w Airflow, przeanalizujmy co dokładnie zostało wygenerowane. Wykonaj poniższe kroki w terminalu:
+
+1. **Sprawdź czy pliki istnieją:**
+   ```shell
+   ls -lh /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv
+   ls -lh /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json
+   ```
+
+2. **Przeanalizuj dane klientów (CSV):**
+   ```shell
+   head -n 5 /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv
+   ```
+   - Zwróć uwagę na kolumnę `customer_id`. Czy jej wartość zaczyna się od Twojego offsetu (dzisiejszej daty)?
+   - Sprawdź kolumnę `registration_date`. Czy wszystkie daty mieszczą się w zadanym zakresie (`DATE_DASH`)?
+
+3. **Przeanalizuj dane transakcji (JSON):**
+   ```shell
+   head -n 20 /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json
+   ```
+   - Zauważ, że każda transakcja posiada unikalne `transaction_id` oparte na offsecie.
+   - Sprawdź strukturę pola `items`. Jest to tablica obiektów – jak dbt poradzi sobie z taką strukturą (pamiętasz funkcję `unnest` z Lab 02)?
+
+4. **Dlaczego używamy offsetu?** 
+   Dzięki temu, że jako offset podaliśmy dzisiejszą datę (np. `24042000000`), mamy pewność, że nowo wygenerowane ID klientów i transakcji nie będą kolidować z danymi wygenerowanymi w poprzednich dniach (Lab 01/02). W systemach produkcyjnych taką unikalność zapewnia zazwyczaj baza danych (sekwencje) lub UUID.
+
+### Uruchomienie Airflow
+
+Przed przystąpieniem do tworzenia DAG-a upewnij się, że serwer Apache Airflow jest uruchomiony:
+- Jeśli nie uruchamiałeś go wcześniej w ramach Lab 03, przejdź do folderu `dbt/lab-dbt03/airflow/` i wykonaj `./init.sh`.
+- Jeśli serwer był już zainicjalizowany, ale został wyłączony, uruchom go ponownie poleceniem:
+  ```shell
+  airflow standalone
+  ```
 
 ### Tworzenie DAG
 
@@ -1037,6 +1118,32 @@ Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych 
 #### Analiza danych z wykorzystaniem BigQuery
 
 W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
+
+### Analiza struktury i przepływu danych (Lab 04)
+
+Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i TaskFlow), przeanalizujmy architekturę rozwiązania.
+
+1. **Weryfikacja struktury Hive w GCS:** Wykonaj polecenie, aby zobaczyć, jak Airflow zorganizował dane w chmurze (pamiętaj o podstawieniu nazwy swojego bucketu):
+   ```shell
+   gsutil ls -R gs://<nazwa_bucketu>/data-lake/raw-data/
+   ```
+   - Zauważ strukturę folderów: `date=YYYY-MM-DD`. To jest właśnie **Hive Partitioning**. Dlaczego jest to istotne? Nowoczesne silniki (BigQuery, DuckDB, Spark) potrafią "przeskoczyć" foldery z datami, których nie potrzebują w zapytaniu (tzw. *partition pruning*).
+
+2. **Analiza zadania TaskFlow:** Sprawdź logi zadania `read_gcs_hive_and_export`. 
+   - Zwróć uwagę na zapytanie SQL użyte w DuckDB. Funkcja `read_csv_auto` z parametrem `hive_partitioning=TRUE` automatycznie dodała kolumnę `date` do danych, mimo że nie było jej wewnątrz plików CSV!
+   - Sprawdź, czy plik wynikowy został utworzony lokalnie: `ls -l /tmp/all_customers.csv`. Czy zawiera on dane ze wszystkich dni, dla których uruchomiono generator?
+
+3. **Zrozumienie parametru DS:** W kodzie DAGa użyliśmy `{{ ds }}` oraz `{{ ds_nodash }}`. 
+   - Sprawdź w interfejsie Airflow (zakładka **Rendered Template**) dla zadania `generate_daily_data`, na jakie konkretne wartości zostały zamienione te zmienne. 
+   - Pamiętaj: w Airflow `ds` (execution_date) to początek interwału danych, co zazwyczaj oznacza datę "wczorajszą" względem momentu uruchomienia (dlatego w logach widniała data z dnia poprzedniego).
+
+4. **Weryfikacja zmiennych:** Przejdź do `Admin -> Variables`. 
+   - Czy zmiana wartości `GCS_bucket_name` na nieistniejący bucket spowoduje błąd całego DAGa, czy tylko konkretnych zadań? Przetestuj to (pamiętaj o przywróceniu poprawnej nazwy).
+
+> PYTANIE: Dlaczego w zadaniu `read_gcs_hive_and_export` używamy `database=':memory:'` zamiast łączyć się z naszym plikiem `bookstore_dwh.ddb`?
+
+> PYTANIE: Jakie są zalety przechowywania surowych danych (raw data) w GCS w formacie Hive, zamiast ładowania ich bezpośrednio do bazy DuckDB przy każdym uruchomieniu?
+
 
 ### Zadania dodatkowe:
 1. Korzystając z dbt utwórz modele w downstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.

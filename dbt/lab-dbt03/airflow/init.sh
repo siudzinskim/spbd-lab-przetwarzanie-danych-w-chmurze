@@ -1,6 +1,8 @@
 #!/bin/bash
 # Ustawienie AIRFLOW_HOME na folder zamontowany w wolumenie trwałym
-export AIRFLOW_HOME=/config/airflow
+export AIRFLOW_HOME=/config/workspace/airflow
+mkdir -p $AIRFLOW_HOME
+ln -s $AIRFLOW_HOME /config/airflow
 
 echo "Inicjalizacja środowiska Airflow w $AIRFLOW_HOME..."
 
@@ -14,9 +16,6 @@ cp webserver_config.py $AIRFLOW_HOME/webserver_config.py
 
 # Kopiowanie DAG-ów (w tym dbt_run_dag.py jeśli istnieje w głównym folderze)
 cp -R dags/* $AIRFLOW_HOME/dags/ 2>/dev/null || true
-if [ -f dbt_run_dag.py ]; then
-    cp dbt_run_dag.py $AIRFLOW_HOME/dags/
-fi
 
 echo "Uruchamianie migracji bazy danych..."
 airflow db migrate
