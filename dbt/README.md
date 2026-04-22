@@ -954,8 +954,9 @@ with DAG(
     start_date=days_ago(1), # Uruchom od wczoraj
     schedule='@daily',      # Uruchamiaj codziennie o północy UTC
     catchup=False,          # Nie uruchamiaj dla przeszłych, nieuruchomionych interwałów
+    max_active_runs=1,
     tags=['data-generation', 'dbt', 'daily'],
-    description='Generates daily customer and transaction data, then runs the dbt workflow.',
+    description='Generates daily customer and transaction data and uploads to GCS.',
     default_args={
         'owner': 'airflow',
     },
@@ -1073,20 +1074,6 @@ Aby DAG działał poprawnie, należy utworzyć zmienną `GCS_bucket_name` w menu
 
 Wirtualna maszyna w GCP posiada domyślnie skonfigurowany dostęp do usług Cloud Storage za pośrednictwem przypisanego konta serwisowego. Nie jest wymagana dodatkowa konfiguracja `gsutil` ani plików credentials.
 
-### Cathup & Backfilling
-
-#### Catchup
-Airflow umożliwia załadowanie danych historycznych. Aby załadować dane z poprzednich 7 dni, zaktualizuj `start_date=days_ago(7)` oraz ustaw `catchup=True`.
-
-#### Usunięcie informacji o DAG
-Aby zresetować stan DAGa, użyj opcji `Delete DAG`. Definicja wciąż pozostanie w pliku, ale historia wykonań zostanie wyczyszczona. Po ponownym włączeniu, funkcja `catchup` uzupełni brakujące dni.
-
-#### Backfilling
-Możesz również skorzystać z CLI do wymuszenia ładowania za konkretny okres:
-```shell
-airflow dags backfill --start-date 2025-05-20 --end-date 2025-05-22 daily_data_generator
-```
-
 #### Generowanie danych dla istniejących użytkowników (TaskFlow & DuckDB)
 
 Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych bezpośrednio z GCS:
@@ -1147,9 +1134,21 @@ Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych 
     export_task = read_gcs_hive_and_export(ds="{{ ds }}", ds_nodash="{{ ds_nodash }}")
 ```
 
-#### Analiza danych z wykorzystaniem BigQuery
+Powyższy kod wygeneruje transakcje dla istniejących użytkowników, symulując kolejne zakupy.
 
-W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
+### Cathup & Backfilling
+
+#### Catchup
+Airflow umożliwia załadowanie danych historycznych. Aby załadować dane z poprzednich 7 dni, zaktualizuj `start_date=days_ago(3)` oraz ustaw `catchup=True`.
+
+#### Usunięcie informacji o DAG
+Aby zresetować stan DAGa, użyj opcji `Delete DAG`. Definicja wciąż pozostanie w pliku, ale historia wykonań zostanie wyczyszczona. Po ponownym włączeniu, funkcja `catchup` uzupełni brakujące dni.
+
+#### Backfilling
+Możesz również skorzystać z CLI do wymuszenia ładowania za konkretny okres (np. ostatnie 7 dni):
+```shell
+airflow dags backfill --start-date $(date -d "7 days ago" +%Y-%m-%d) --end-date $(date -d "1 days ago" +%Y-%m-%d) daily_data_generator
+```
 
 ### Analiza struktury i przepływu danych (Lab 04)
 
@@ -1176,9 +1175,9 @@ Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i T
 
 > PYTANIE: Jakie są zalety przechowywania surowych danych (raw data) w GCS w formacie Hive, zamiast ładowania ich bezpośrednio do bazy DuckDB przy każdym uruchomieniu?
 
+## Lab 05
 
-### Zadania dodatkowe:
-1. Korzystając z dbt utwórz modele w downstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.
-2. Wykorzystaj materializację `incremental`, która będzie ładowała do 'hurtowni danych' wyłącznie nowe rekordy.
-3. Zaproponuj dodatkowe pola techniczne zawierające np. informacje o dacie ładowania, pliku źródłowym, ostatniej aktualizacji itp. i zaimplementuj je w modelu.
+### Analiza danych z wykorzystaniem BigQuery
+
+W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
 
