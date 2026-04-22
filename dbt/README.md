@@ -1024,40 +1024,40 @@ Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upew
 ### Przesyłanie danych do Google Cloud Storage (GCS)
 
 W inżynierii danych bardzo często wykorzystuje się koncepcję data lake, umieszczając dane w kontenerach takich jak GCS, 
-często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS. Zamiast 
-używać generycznego `BashOperator`, wykorzystamy dedykowany operator `LocalFilesystemToGCSOperator`, który jest częścią 
-pakietu dostawcy Google dla Airflow.
+często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS, tak aby 
+znalazły się w ścieżce: 
+
+```
+gs://<nazwa_bucketu>/data-lake/raw-data/<rodzaj-pliku>/date=<data-generacji>/<nazwa-pliku>
+```
+
+gdzie `<rodzaj-pliku>` to odpowiednio `customers` lub `transactions`, `<data-generacji>` pobierana jest ze zmiennej `templated_date_dash`, a `<nazwa-bucketu>` jest pobierana ze zmiennej globalnej `GCS_bucket_name` zdefiniowanej w interfejsie Airflow.
 
 Do aktualnego DAGa dodaj następujące fragmenty:
 - w sekcji importów:
     ```python
     from airflow.models import Variable
-    from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
     ```
 - w sekcji konfiguracji:
     ```python
     GCS_BUCKET_NAME = Variable.get("GCS_bucket_name")
     
-    # Ścieżki docelowe w formacie Hive
-    gcs_customers_target_path = f"data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
-    gcs_transactions_target_path = f"data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
+    gcs_customers_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
+    gcs_transactions_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
+    
+    upload_customers_to_gcs_command = f"gsutil cp {templated_customers_output_file} {gcs_customers_target_path}"
+    upload_transactions_to_gcs_command = f"gsutil cp {templated_transactions_output_file} {gcs_transactions_target_path}"
     ```
-- wewnątrz definicji DAG (zamiast BashOperator):
+- wewnątrz definicji DAG:
     ```python
-    upload_customers_to_gcs_task = LocalFilesystemToGCSOperator(
+    upload_customers_to_gcs_task = BashOperator(
         task_id='upload_customers_to_gcs',
-        src=templated_customers_output_file,
-        dst=gcs_customers_target_path,
-        bucket=GCS_BUCKET_NAME,
-        gcp_conn_id='google_cloud_default', # Wykorzystuje domyślne połączenie skonfigurowane w Airflow
+        bash_command=upload_customers_to_gcs_command,
     )
 
-    upload_transactions_to_gcs_task = LocalFilesystemToGCSOperator(
+    upload_transactions_to_gcs_task = BashOperator(
         task_id='upload_transactions_to_gcs',
-        src=templated_transactions_output_file,
-        dst=gcs_transactions_target_path,
-        bucket=GCS_BUCKET_NAME,
-        gcp_conn_id='google_cloud_default',
+        bash_command=upload_transactions_to_gcs_command,
     )
     ```
 - w sekcji zależności:
@@ -1065,33 +1065,13 @@ Do aktualnego DAGa dodaj następujące fragmenty:
     verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
     ```
 
-> UWAGA: Zauważ, że w `LocalFilesystemToGCSOperator` parametr `dst` nie zawiera prefiksu `gs://`, ponieważ nazwę bucketu podajemy w osobnym polu `bucket`.
+### Ustawienie zmiennych
 
-### Ustawienie zmiennych i połączeń
-
-Aby DAG działał poprawnie:
-1. Utwórz zmienną `GCS_bucket_name` w menu `Admin -> Variables`.
-2. Domyślne połączenie `google_cloud_default` (dostępne w `Admin -> Connections`) zazwyczaj nie wymaga edycji na maszynie VM w GCP, ponieważ Airflow automatycznie wykryje konto serwisowe przypisane do instancji.
+Aby DAG działał poprawnie, należy utworzyć zmienną `GCS_bucket_name` w menu `Admin -> Variables`. W polu `Val` umieść nazwę bucketu GCS, który został utworzony w laboratorium `terraform/lab-03`.
 
 #### Konfiguracja dostępu do GCP
 
 Wirtualna maszyna w GCP posiada domyślnie skonfigurowany dostęp do usług Cloud Storage za pośrednictwem przypisanego konta serwisowego. Nie jest wymagana dodatkowa konfiguracja `gsutil` ani plików credentials.
-
-> **UWAGA - Rozwiązywanie problemów:** Jeśli po dodaniu operatora `LocalFilesystemToGCSOperator` w interfejsie Airflow pojawi się błąd `ModuleNotFoundError: No module named 'airflow.providers.google'`, oznacza to, że w Twoim środowisku Python nie jest zainstalowany pakiet dostawcy Google. Możesz to naprawić na dwa sposoby:
->
-> 1. **Zainstaluj brakujący pakiet:** Wykonaj w terminalu polecenie:
->    ```shell
->    pip install apache-airflow-providers-google
->    ```
->    Następnie zrestartuj Airflow.
->
-> 2. **Użyj alternatywy (BashOperator):** Jeśli nie chcesz instalować dodatkowych pakietów, możesz pozostać przy `BashOperator` i narzędziu `gsutil`, które jest domyślnie dostępne na maszynie VM. Wtedy Twoje zadania będą wyglądać tak:
->    ```python
->    upload_customers_to_gcs_task = BashOperator(
->        task_id='upload_customers_to_gcs',
->        bash_command=f"gsutil cp {templated_customers_output_file} gs://{GCS_BUCKET_NAME}/{gcs_customers_target_path}",
->    )
->    ```
 
 ### Cathup & Backfilling
 
@@ -1116,23 +1096,55 @@ Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych 
     import duckdb
 
     @task
-    def read_gcs_hive_and_export():
+    def read_gcs_hive_and_export(ds, ds_nodash):
+        import subprocess
+        import shutil
+        from google.cloud import storage
+        from google.cloud import bigquery
+
+        # Lokalne pobranie danych klientów
+        local_raw_dir = "/tmp/gcs_customers_raw"
+        if os.path.exists(local_raw_dir):
+            shutil.rmtree(local_raw_dir)
+        os.makedirs(local_raw_dir)
+
+        gcs_src = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/"
+        subprocess.run(["gsutil", "-m", "cp", "-r", gcs_src, local_raw_dir], check=True)
+
         con = duckdb.connect(database=':memory:', read_only=False)
-        con.sql("INSTALL httpfs; LOAD httpfs;")
-        # Konfiguracja uwierzytelnienia GCS dla DuckDB
-        con.sql("CREATE SECRET (TYPE GCS, PROVIDER 'gce');")
+        
+        # DuckDB scala wszystkich klientów (Hive Partitioning)
+        all_customers_csv = "/tmp/all_customers.csv"
+        local_path_pattern = f"{local_raw_dir}/customers/date=*/*.csv"
 
-        gcs_path_pattern = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date=*/*.csv"
-        local_output_file = "/tmp/all_customers.csv"
-
-        query = f"""
-        COPY (SELECT * FROM read_csv_auto('{gcs_path_pattern}', hive_partitioning=TRUE))
-        TO '{local_output_file}' (HEADER, DELIMITER ',');
-        """
+        query = f"COPY (SELECT * FROM read_csv_auto('{local_path_pattern}', hive_partitioning=TRUE)) TO '{all_customers_csv}' (HEADER, DELIMITER ',');"
         con.sql(query)
         con.close()
 
-    export_task = read_gcs_hive_and_export()
+        # Generowanie transakcji dla WSZYSTKICH klientów
+        all_transactions_json = f"/tmp/all_customers_transactions-{ds_nodash}.json"
+        books_input = os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), "books.csv")
+        
+        gen_transactions_cmd = [
+            "python", GENERATOR_SCRIPT_PATH,
+            "--generate", "transactions",
+            "--customers-input", all_customers_csv,
+            "--transactions-output", all_transactions_json,
+            "--books-input", books_input,
+            "--start-date", ds,
+            "--end-date", ds
+        ]
+        subprocess.run(gen_transactions_cmd, check=True)
+
+        # Upload do GCS przy użyciu biblioteki google-cloud-storage (wymaga zainstalowanej biblioteki w obrazie)
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        
+        gcs_dest_path = f"data-lake/raw-data/transactions/date={ds}/all_customers_transactions-{ds_nodash}.json"
+        blob = bucket.blob(gcs_dest_path)
+        blob.upload_from_filename(all_transactions_json)
+
+    export_task = read_gcs_hive_and_export(ds="{{ ds }}", ds_nodash="{{ ds_nodash }}")
 ```
 
 #### Analiza danych z wykorzystaniem BigQuery
