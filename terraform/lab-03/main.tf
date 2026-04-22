@@ -74,7 +74,7 @@ resource "google_compute_instance" "vm" {
   # Zmiany w setup.sh nie będą już powodować odtwarzania maszyny.
   metadata_startup_script = <<-EOT
     #!/bin/bash
-    export VSCODE_PASSWORD="${var.vscode_password}"
+    VSCODE_PASSWORD="${var.vscode_password}"
     BUCKET_NAME="${google_storage_bucket.workspace_bucket.name}"
     gsutil cp "gs://$${BUCKET_NAME}/setup.sh" /tmp/setup.sh
     chmod +x /tmp/setup.sh
