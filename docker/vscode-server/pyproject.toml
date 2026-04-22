@@ -14,7 +14,8 @@ jupyter = "*"
 faker = "*"
 kagglehub = "*"
 argcomplete = "*"
-awscli = "*"
+google-cloud = "*"
+apache-airflow-providers-google = "*"
 
 [build-system]
 requires = ["poetry-core"]

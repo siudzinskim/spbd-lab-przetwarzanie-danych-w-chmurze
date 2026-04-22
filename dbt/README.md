@@ -634,16 +634,7 @@ Gratulacje! Ukończyłeś podstawowe laboratorium `dbt` z DuckDB. Nauczyliście 
 * Zapoznaj się z zaawansowanymi konfiguracjami w `dbt_project.yml`.
 
 ---
-> [!WARNING]  
->  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
 
-> [!WARNING]  
-> Poniższe instrukcje laboratoriów nie zostały jeszcze zmigrowane do chmury GCP. Poniższe instrukcje nie będą działały prawidłowo! 
-
-> [!WARNING]  
->  !!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!!
-
----
 
 ## Lab 03
 
@@ -655,28 +646,20 @@ procesu przetwarzania danych za pomocą `dbt`.
 
 ---
 
-Aby wykonać kopię zapasową można wykonać następujące polecenia:
+Aby wykonać kopię zapasową danych laboratorium, można wykonać następujące polecenia:
 ```shell
 tar -cvzf /tmp/spdb-bckp-$(date -Iseconds).tar.gz /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze
-aws s3 cp /tmp/spdb-bckp-* s3://<nazwa-twojego-bucketu>/bckp/
+gsutil cp /tmp/spdb-bckp-* gs://<nazwa-twojego-bucketu>/bckp/
 ```
 
 ---
 
-1. Serwer Apache Airflow wymaga do pracy większej instancji wirtualnej maszyny oraz otworzyć kolejne porty komunikacyjne, 
-    w związku z czym musimy w pierwszej kolejności zmodyfikować skrypty terraform. W tym celu:
-   * Otwórz plik `ec2.tf` i zmodyfikuj zasób `aws_instance.lab_instance.instance_type` tak, aby przyjął wartość `t3.small` zamiast `t2.micro` lub `t3.micro`.
-   * Zmodyfikuj plik `output.tf` otwierając kolejne porty. Zaktualizuj wartość `vscode-tunnel-cmd`, tak aby tunel udostępniał również port 8080:
-    ```
-    output "vscode-tunnel-cmd" {
-      value = "ssh -N -f -L 8888:localhost:8888 -L 8080:localhost:8080 -i ~/Downloads/kp.pem ec2-user@${aws_instance.lab_instance.public_ip}"
-    }"
-    ```
-   * Zaaplikuj zmiany w infrastrukturze. 
-2. Korzystając z wartości `vscode-tunnel-cmd` zwróconej przez terraform aby uruchomić tunel.
+1. Maszyna wirtualna utworzona w ramach laboratorium `terraform/lab-03` (typ `e2-standard-2`) posiada wystarczające 
+    zasoby do uruchomienia Apache Airflow. Porty 8080 (Airflow) oraz 8000 (dbt docs) zostały automatycznie otwarte 
+    w regułach zapory sieciowej (firewall).
+2. Adres serwera Airflow to `http://<public_ip>:8080`. Adres IP znajdziesz w wyjściu terraform (`public_ip`).
 3. Aby uruchomić serwer Airflow podłącz się do serwera vscode i otwórz terminal, a następnie przejdź do ścieżki 
-`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt03/airflow/` (`UWAGA!` jeśli repozytorium z kodem 
-zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i wykonaj polecenie:
+`/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt03/airflow/` i wykonaj polecenie:
     ```shell
     ./init.sh
     ```
@@ -684,17 +667,16 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
     oraz wstępnie uruchomiony serwer w trybie standalone. Polecenie to należy wykonać tylko raz! Kolejnym razem aby 
     uruchomić serwer Airflow należy wykonać polecenie `airflow standalone` z linii poleceń (ścieżka w której zostanie 
     uruchomiona komenda nie ma znaczenia).
-4. Otwórz nowe okno przeglądarki i przejdź do adresu: `http://localhost:8080`. Logujemy się na konto `admin`. Hasło
+4. Otwórz nowe okno przeglądarki i przejdź do adresu: `http://<public_ip>:8080`. Logujemy się na konto `admin`. Hasło
     zostanie wyświetlone podczas uruchamiania serwera, np.: 
     ```
     standalone | Airflow is ready
     standalone | Login with username: admin  password: bYruyCsgq8bHANqc
-    standalone | Airflow Standalone is for development purposes only. Do not use this in production!
     ```
     można je również odnaleźć w pliku `airflow/standalone_admin_password.txt`.
 5. Zostanie wyświetlony ekran główny Airflow, w którym dostępny będzie DAG o nazwie `server_health_check_empty`. DAG jest wyłączony, włącz go za pomocą widocznego przełącznika.
 6. Zwróć uwagę, że podczas włączania został on automatycznie uruchomiony. Można go również uruchomić ręcznie klikając w odpowiedni przycisk. Uruchom DAG i kiknij w jego nazwę. Zapoznaj się z interfejsem.
-7. Utwórz nowy plik o nazwie `dbt_run_dag.py` w folderze `airflow/dags` (ścieżka bezwzględna: `/config/workspace/airflow/dags`). Wklej następujący kod:
+7. Utwórz nowy plik o nazwie `dbt_run_dag.py` w folderze `/config/airflow/dags`. Wklej następujący kod:
     ```python
     from __future__ import annotations
     
@@ -822,6 +804,39 @@ zostało skopiowane do innej lokalizacji, zmodyfikuj odpowiednio ścieżkę) i w
 11. Aby ponowić próbę wykonania operacji wybierz task, którego egzekucja zakończyła się błędem i kliknij przycisk `Clear task`.
 12. Wprowadź zmianę w harmonogramie, tak, aby przetwarzanie uruchamiało się co godzinę.
 
+### Analiza wykonania i efektów
+
+Po poprawnym uruchomieniu DAGa `dbt_dag_run`, warto przeanalizować, co właściwie się stało "pod maską" oraz jakie są rezultaty tej operacji.
+
+13. **Analiza logów:** W interfejsie Airflow kliknij na ostatnie udane wykonanie DAGa, a następnie wybierz zadanie `dbt_run`. Kliknij przycisk **Log**.
+    - Przejrzyj logi. Jakie modele zostały uruchomione? 
+    - Znajdź wpis dotyczący `fct_book_transactions`. Czy został utworzony jako `VIEW` czy `TABLE`?
+    - Zwróć uwagę na czas trwania poszczególnych zadań.
+
+14. **Produkty wykonania:** dbt nie tylko uruchamia SQL, ale również generuje pliki pomocnicze.
+    - Przejdź do terminala VSCode i sprawdź zawartość folderu `dbt_project/target/`. Znajdziesz tam m.in. skompilowane zapytania SQL w folderze `compiled` oraz zapytania, które zostały faktycznie wykonane w folderze `run`.
+    - Sprawdź plik `dbt_project/target/run/dbt_project/models/fact/fct_book_transactions.sql`. Jak wyglądał finalny kod SQL wysłany do DuckDB? (zauważ, że `{{ ref(...) }}` zostały zastąpione konkretnymi nazwami tabel).
+
+15. **Weryfikacja bazy danych:** Ponownie połącz się z bazą danych `bookstore_dwh.ddb` za pomocą DuckDB CLI:
+    ```shell
+    duckdb /config/workspace/dbt_bookstore_lab/data/bookstore_dwh.ddb
+    ```
+    - Wykonaj `.tables`. Czy widzisz wszystkie modele stagingowe oraz tabelę faktów?
+    - Sprawdź liczbę rekordów w `fct_book_transactions`: `SELECT count(*) FROM fct_book_transactions;`.
+
+16. **Idempotentność (powtórne uruchomienie):** Uruchom DAG `dbt_dag_run` ponownie (przycisk `Trigger DAG`).
+    - Po zakończeniu sprawdź logi zadania `dbt_run`. 
+    - Czy dbt wykonało te same operacje? Tak, dbt domyślnie nadpisuje istniejące tabele/widoki (operacja `CREATE OR REPLACE`).
+    - Sprawdź ponownie liczbę rekordów w bazie. Czy uległa zmianie? (Nie powinna, jeśli dane źródłowe się nie zmieniły). To kluczowa cecha dobrze zaprojektowanego procesu ELT – jest on idempotentny.
+
+17. **Analiza testów:** Sprawdź logi zadania `dbt_test`.
+    - Ile testów zostało wykonanych? 
+    - Co się dzieje w logach, gdy test przechodzi pomyślnie? dbt wykonuje zapytanie `SELECT count(*) FROM ... WHERE <warunek_błędu>`. Jeśli wynik to 0, test przechodzi.
+
+> PYTANIE: Co by się stało w Airflow, gdyby jeden z testów w zadaniu `dbt_test` nie przeszedł (FAIL)? Czy zadanie `dbt_docs_generate` zostałoby uruchomione?
+
+> PYTANIE: Gdzie dbt przechowuje informacje o tym, które modele są widokami, a które tabelami, skoro w kodzie SQL modeli stagingowych użyliśmy `materialized='table'`, a w `dbt_project.yml` nie ma o tym wzmianki?
+
 
 ## Lab 04
 
@@ -829,12 +844,60 @@ W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje d
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
 Można założyć, że symulacja imituje działanie pobierania danych z API systemu zawierającego nowych użytkowników i ich transakcje.
 
-W tym celu będziemy uruchamiać skrypt, podobnie jak w laboratorium 02, z tym, że wykorzystamy dodatkowe parametry wykonania skryptu generatora, jak w poniższym przykładzie:
+W tym celu będziemy uruchamiać skrypt, podobnie jak w laboratorium 02, z tym, że wykorzystamy dodatkowe parametry wykonania skryptu generatora. Przed uruchomieniem należy przejść do folderu z generatorom oraz wyeksportować zmienne środowiskowe, które pozwolą na dynamiczne określenie daty i nazw plików:
+
 ```shell
-python generator.py --generate all --customers-offset 25052000000 --transactions-offset 25052000000 --customers-output /config/workspace/dbt_bookstore_lab/customers-250520.csv --transactions-output /config/workspace/dbt_bookstore_lab/transactions-250520.json --start-date 2025-05-19 --end-date 2025-05-19
+cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01
+export CURRENT_DATE=$(date +%y%m%d)
+export DATE_DASH=$(date +%Y-%m-%d)
+
+python generator.py \
+  --generate all \
+  --customers-offset ${CURRENT_DATE}000000 \
+  --transactions-offset ${CURRENT_DATE}000000 \
+  --customers-output /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv \
+  --transactions-output /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json \
+  --start-date ${DATE_DASH} \
+  --end-date ${DATE_DASH}
 ```
 
-Powyższe zapytanie wygeneruje dodatkowe pliki zawierające zarówno dane o nowo zarejestrrowanych klientach, jak i ich transakcjach. Pliki zostaną zapisane do nowego pliku csv/json.
+Powyższe zapytanie wygeneruje dodatkowe pliki zawierające zarówno dane o nowo zarejestrowanych klientach, jak i ich transakcjach. Pliki zostaną zapisane do nowego pliku csv/json z dzisiejszą datą w nazwie.
+
+### Weryfikacja wygenerowanych danych
+
+Przed przystąpieniem do automatyzacji procesu w Airflow, przeanalizujmy co dokładnie zostało wygenerowane. Wykonaj poniższe kroki w terminalu:
+
+1. **Sprawdź czy pliki istnieją:**
+   ```shell
+   ls -lh /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv
+   ls -lh /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json
+   ```
+
+2. **Przeanalizuj dane klientów (CSV):**
+   ```shell
+   head -n 5 /config/workspace/dbt_bookstore_lab/customers-${CURRENT_DATE}.csv
+   ```
+   - Zwróć uwagę na kolumnę `customer_id`. Czy jej wartość zaczyna się od Twojego offsetu (dzisiejszej daty)?
+   - Sprawdź kolumnę `registration_date`. Czy wszystkie daty mieszczą się w zadanym zakresie (`DATE_DASH`)?
+
+3. **Przeanalizuj dane transakcji (JSON):**
+   ```shell
+   head -n 20 /config/workspace/dbt_bookstore_lab/transactions-${CURRENT_DATE}.json
+   ```
+   - Zauważ, że każda transakcja posiada unikalne `transaction_id` oparte na offsecie.
+   - Sprawdź strukturę pola `items`. Jest to tablica obiektów – jak dbt poradzi sobie z taką strukturą (pamiętasz funkcję `unnest` z Lab 02)?
+
+4. **Dlaczego używamy offsetu?** 
+   Dzięki temu, że jako offset podaliśmy dzisiejszą datę (np. `24042000000`), mamy pewność, że nowo wygenerowane ID klientów i transakcji nie będą kolidować z danymi wygenerowanymi w poprzednich dniach (Lab 01/02). W systemach produkcyjnych taką unikalność zapewnia zazwyczaj baza danych (sekwencje) lub UUID.
+
+### Uruchomienie Airflow
+
+Przed przystąpieniem do tworzenia DAG-a upewnij się, że serwer Apache Airflow jest uruchomiony:
+- Jeśli nie uruchamiałeś go wcześniej w ramach Lab 03, przejdź do folderu `dbt/lab-dbt03/airflow/` i wykonaj `./init.sh`.
+- Jeśli serwer był już zainicjalizowany, ale został wyłączony, uruchom go ponownie poleceniem:
+  ```shell
+  airflow standalone
+  ```
 
 ### Tworzenie DAG
 
@@ -958,219 +1021,152 @@ Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upew
     generate_daily_data_task >> verify_files_exist_task
 ```
 
-### Przesyłanie danych do S3
+### Przesyłanie danych do Google Cloud Storage (GCS)
 
-W inżynierii danych bardzo często spotykanym rozwiązaniem jest wykorzystywanie koncepcji data lake oraz umieszczania danych w kontenerach takich, jak s3, często korzystając z partycjonowania hive.
-Dodajmy więc kolejne taski (po jednym dla każdego z plików `customers` i `transactions`), które przeniosą wygenerowane pliki do wcześniej utworzonego bucketu S3, tak, aby znalazły się w ścieżce: 
-
-```
-s3://<nazwa_bucketu>/data-lake/raw-data/<rodzaj-pliku>/date=<data-generacji>/<nazwa-pliku>
-```
-
-gdzie `<rodzaj-pliku>` to odpowiednio `customers` lub `transactions`, `<data-generacji>` pobierana jest ze zmiennej `templated_date_dash`, a `<nazwa-bucketu>` jest pobierana ze zmiennej globalnej `S3_bucket_name` zdefiniowanej w interfejsie Airflow.
+W inżynierii danych bardzo często wykorzystuje się koncepcję data lake, umieszczając dane w kontenerach takich jak GCS, 
+często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS. Zamiast 
+używać generycznego `BashOperator`, wykorzystamy dedykowany operator `LocalFilesystemToGCSOperator`, który jest częścią 
+pakietu dostawcy Google dla Airflow.
 
 Do aktualnego DAGa dodaj następujące fragmenty:
 - w sekcji importów:
     ```python
-    from airflow.models import Variable # Dodaj ten import na początku pliku DAGa
+    from airflow.models import Variable
+    from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
     ```
-- w sekcji konfiguracji, przed definicją DAG:
+- w sekcji konfiguracji:
     ```python
-        # --- S3 Upload Configuration ---
-        # Pobieranie nazwy bucketa S3 z Airflow Variables
-        # Pierwszy argument to nazwa zmiennej w Airflow UI,
-        # drugi to opcjonalna wartość domyślna, jeśli zmienna nie istnieje.
-        S3_BUCKET_NAME = Variable.get("S3_bucket_name") # Upewnij się, że nazwa zmiennej ("S3_bucket_name") jest taka sama jak w Airflow UI
+    GCS_BUCKET_NAME = Variable.get("GCS_bucket_name")
     
-        # Ścieżki docelowe w S3
-        s3_customers_target_path = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
-        s3_transactions_target_path = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
-    
-        # Komendy AWS CLI do kopiowania plików
-        upload_customers_to_s3_command = f"aws s3 cp {templated_customers_output_file} {s3_customers_target_path}"
-        upload_transactions_to_s3_command = f"aws s3 cp {templated_transactions_output_file} {s3_transactions_target_path}"
+    # Ścieżki docelowe w formacie Hive
+    gcs_customers_target_path = f"data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
+    gcs_transactions_target_path = f"data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
     ```
-- wewnątrz definicji DAG:
+- wewnątrz definicji DAG (zamiast BashOperator):
     ```python
-        # --- Define S3 Upload Tasks ---
-        upload_customers_to_s3_task = BashOperator(
-            task_id='upload_customers_to_s3',
-            bash_command=upload_customers_to_s3_command,
-            doc_md=(
-                f"Uploads the generated customers CSV file to S3: {s3_customers_target_path}. "
-                "Requires AWS CLI to be configured and have necessary S3 write permissions."
-            ),
-        )
-    
-        upload_transactions_to_s3_task = BashOperator(
-            task_id='upload_transactions_to_s3',
-            bash_command=upload_transactions_to_s3_command,
-            doc_md=(
-                f"Uploads the generated transactions JSON file to S3: {s3_transactions_target_path}. "
-                "Requires AWS CLI to be configured and have necessary S3 write permissions."
-            ),
-        )
+    upload_customers_to_gcs_task = LocalFilesystemToGCSOperator(
+        task_id='upload_customers_to_gcs',
+        src=templated_customers_output_file,
+        dst=gcs_customers_target_path,
+        bucket=GCS_BUCKET_NAME,
+        gcp_conn_id='google_cloud_default', # Wykorzystuje domyślne połączenie skonfigurowane w Airflow
+    )
+
+    upload_transactions_to_gcs_task = LocalFilesystemToGCSOperator(
+        task_id='upload_transactions_to_gcs',
+        src=templated_transactions_output_file,
+        dst=gcs_transactions_target_path,
+        bucket=GCS_BUCKET_NAME,
+        gcp_conn_id='google_cloud_default',
+    )
     ```
-- w sekcji zależności dodaj:
+- w sekcji zależności:
     ```python
-        # --- Update Task Dependencies ---
-        # Zakładając, że poprzednie taski to generate_daily_data_task i verify_files_exist_task
-        # Nowe taski S3 powinny być uruchamiane po weryfikacji istnienia plików.
-        verify_files_exist_task >> [upload_customers_to_s3_task, upload_transactions_to_s3_task]
+    verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
     ```
 
-### Ustawienie zmiennych
+> UWAGA: Zauważ, że w `LocalFilesystemToGCSOperator` parametr `dst` nie zawiera prefiksu `gs://`, ponieważ nazwę bucketu podajemy w osobnym polu `bucket`.
 
-Powyższy DAG nie będzie mógł być prawidłowo sparsowany, ponieważ nie istnieje zmienna globalna `S3_bucket_name`, widoczny będzie błąd:
+### Ustawienie zmiennych i połączeń
 
-```
-Broken DAG: [/config/airflow/dags/daily_data_generator.py]
-Traceback (most recent call last):
-  File "/config/airflow/dags/daily_data_generator.py", line 51, in <module>
-    S3_BUCKET_NAME = Variable.get("S3_bucket_name") # Upewnij się, że nazwa zmiennej ("S3_bucket_name") jest taka sama jak w Airflow UI
-                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/app/venv/lib/python3.12/site-packages/airflow/models/variable.py", line 143, in get
-    raise KeyError(f"Variable {key} does not exist")
-KeyError: 'Variable S3_bucket_name does not exist'
-```
+Aby DAG działał poprawnie:
+1. Utwórz zmienną `GCS_bucket_name` w menu `Admin -> Variables`.
+2. Domyślne połączenie `google_cloud_default` (dostępne w `Admin -> Connections`) zazwyczaj nie wymaga edycji na maszynie VM w GCP, ponieważ Airflow automatycznie wykryje konto serwisowe przypisane do instancji.
 
-Aby usunąć ten błąd należy utworzyć zmienną `S3_bucket_name` w menu `Admin -> Variables`. W polu `Val` umieść nazwę publicznego bucketu, który utowrzyliśmy we wcześniejszych laboratoriach.
+#### Konfiguracja dostępu do GCP
 
-#### Konfiguracja dostępu do AWS
+Wirtualna maszyna w GCP posiada domyślnie skonfigurowany dostęp do usług Cloud Storage za pośrednictwem przypisanego konta serwisowego. Nie jest wymagana dodatkowa konfiguracja `gsutil` ani plików credentials.
 
-Po uruchomieniu zadania `upload_customers_to_s3` i `upload_transactions_to_s3` zakończą się błędem. 
-Jest to spowodowane konfiguracją konta AWS, które wymaga każdorazowo aktualizacji `~/.aws/credentials` - przejdż do konsoli w VSCode serwerze i zaktualizj plik `credentials`.
-
-#### Weryfikacja ładowania plików do S3
-
-Otwórz konsolę AWS i przejdź do zakładki S3, nasteępnie do bucketu, którego nazwa została podana w zmiennej `S3_bucket_name` i zweryfikuj, czy pliki zostały załadowane.
+> **UWAGA - Rozwiązywanie problemów:** Jeśli po dodaniu operatora `LocalFilesystemToGCSOperator` w interfejsie Airflow pojawi się błąd `ModuleNotFoundError: No module named 'airflow.providers.google'`, oznacza to, że w Twoim środowisku Python nie jest zainstalowany pakiet dostawcy Google. Możesz to naprawić na dwa sposoby:
+>
+> 1. **Zainstaluj brakujący pakiet:** Wykonaj w terminalu polecenie:
+>    ```shell
+>    pip install apache-airflow-providers-google
+>    ```
+>    Następnie zrestartuj Airflow.
+>
+> 2. **Użyj alternatywy (BashOperator):** Jeśli nie chcesz instalować dodatkowych pakietów, możesz pozostać przy `BashOperator` i narzędziu `gsutil`, które jest domyślnie dostępne na maszynie VM. Wtedy Twoje zadania będą wyglądać tak:
+>    ```python
+>    upload_customers_to_gcs_task = BashOperator(
+>        task_id='upload_customers_to_gcs',
+>        bash_command=f"gsutil cp {templated_customers_output_file} gs://{GCS_BUCKET_NAME}/{gcs_customers_target_path}",
+>    )
+>    ```
 
 ### Cathup & Backfilling
 
 #### Catchup
-Airflow umożliwia również załadowanie danych historycznych. Nasz DAG nadaje się świetnie do załadowania historii za pomocą backfillingu.
-Aby załadować dane z poprzednich 7 dni zaktualizujmy wartość `start_date=days_ago(7)` zamiast aktualnego `start_date=days_ago(7)`.
-
-Zauważmy, że po zmianie tej wartości nic się nie wydarzyło. Spróbujmy zatem zaktualizować więc kolejną zmienną konfiguracyjną `catchup=True` zamiast `catchup=False`. 
-
-Efekt? Znów nie zadziałało.
+Airflow umożliwia załadowanie danych historycznych. Aby załadować dane z poprzednich 7 dni, zaktualizuj `start_date=days_ago(7)` oraz ustaw `catchup=True`.
 
 #### Usunięcie informacji o DAG
-
-Aby zaprezentować jak działa opcja `catchup` usuniemy informacje o wszystkich dotychczasowych egzekucjach DAGa `daily_data_generator`. W tym celu użyjemy czerwonej ikony 'śmietnika' opisanej `Delete DAG`.
-
-Zwróć uwagę, że po kliknięciu `Delete DAG`, tak naprawdę nie suwamy DAGa, ale informacje o jego wcześniejszych wykonaniach. 
-Definicja DAG wciąż znajduje się w pliku `/config/airflow/dags/daily_data_generator.py` i DAG będzie pojawiał się w interfejsie Airflow dopóki jej stamtąd nie usuniemy.
-
-Natomiast ważne jest to, że po kliknięciu `Delete DAG` wszedł on ponownie w status `Paused`. Włączmy go ponownie. Po uruchomieniu funkcja `cathup` uzupełni brakujące wykonania DAGa dla okresu ostatnich 7 dni, tak jak zdefiniowano w parametrze `start_date`.
+Aby zresetować stan DAGa, użyj opcji `Delete DAG`. Definicja wciąż pozostanie w pliku, ale historia wykonań zostanie wyczyszczona. Po ponownym włączeniu, funkcja `catchup` uzupełni brakujące dni.
 
 #### Backfilling
-
-Niezależnie od funkcji `cathup` możemy również skorzystać z opcji `backfilling`, która umożliwia nam załadowanie brakujących danych za dowolny okres, nawet taki, który wykracza poza granicę `start_date`. 
-Jednak funkcja backfilling jest dostępna jedynie jako komenda CLI:
-
+Możesz również skorzystać z CLI do wymuszenia ładowania za konkretny okres:
 ```shell
-airflow dags backfill \
-    --start-date YYYY-MM-DD \
-    --end-date YYYY-MM-DD \
-    daily_data_generator
+airflow dags backfill --start-date 2025-05-20 --end-date 2025-05-22 daily_data_generator
 ```
- czyli w naszym przypadku wykonajmy ładowanie za ostatnie 3 dni poprzedzające okres, który już został załadowany (przykładowo jeśli dziś przypada 11 stycznia, korzystając z funkcji catchup załadowaliśmy dane za okres 4-9 stycznia, zatem 3 poprzedzające dni oznaczają 1-3 stycznia).
 
-#### Generowanie transakcji dla istniejących (nie nowych) użytkowników
+#### Generowanie danych dla istniejących użytkowników (TaskFlow & DuckDB)
 
-Dodajmy dodatkowe bloki, które z istniejących danych wygenerują plik csv zawierający listę wszystkich użytkowników, 
-następnie wygenerują transakcje za dany okres dla istniejących wcześniej użytkowników. W tym celu musimy wykonać kilka kroków,
-które dodamy z wykorzystaniem notacji `taskflow`. Na końcu pliku definiującego DAG dodaj:
+Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych bezpośrednio z GCS:
 
 ```python
     from airflow.decorators import task
     import duckdb
-    # --- Update Task Dependencies ---
-    # Zakładając, że poprzednie taski to generate_daily_data_task i verify_files_exist_task
-    # Nowe taski S3 powinny być uruchamiane po weryfikacji istnienia plików.
-    verify_files_exist_task >> [upload_customers_to_s3_task, upload_transactions_to_s3_task]
-
-    # Konfiguracja ścieżek S3 (zastąp swoimi danymi)
-    s3_endpoint = f"s3://{S3_BUCKET_NAME}/"
-    s3_region = "eu-central-1"  # Zmień na swój region AWS (opcjonalnie)
-
-    # Ścieżka do partycjonowanych plików CSV w S3 (przykład)
-    s3_path_pattern = f"{s3_endpoint}data-lake/raw-data/customers/date=*/*.csv"
-
-    # Ścieżka do lokalnego pliku wyjściowego
-    local_output_file = "/tmp/all_customers.csv"
 
     @task
-    def read_s3_hive_and_export():
-        # Konfiguracja dostępu do S3
+    def read_gcs_hive_and_export():
         con = duckdb.connect(database=':memory:', read_only=False)
-        con.sql(f"INSTALL httpfs;")
-        con.sql(f"LOAD httpfs;")
-        con.sql(f"""CREATE OR REPLACE SECRET secret (TYPE s3, PROVIDER credential_chain, CHAIN config, PROFILE 'default');""")
+        con.sql("INSTALL httpfs; LOAD httpfs;")
+        # Konfiguracja uwierzytelnienia GCS dla DuckDB
+        con.sql("CREATE SECRET (TYPE GCS, PROVIDER 'gce');")
 
-        # Odczyt partycjonowanych plików CSV z S3 z uwzględnieniem partycjonowania Hive
+        gcs_path_pattern = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date=*/*.csv"
+        local_output_file = "/tmp/all_customers.csv"
+
         query = f"""
-        COPY (SELECT * FROM read_csv_auto('{s3_path_pattern}', hive_partitioning=TRUE))
+        COPY (SELECT * FROM read_csv_auto('{gcs_path_pattern}', hive_partitioning=TRUE))
         TO '{local_output_file}' (HEADER, DELIMITER ',');
         """
         con.sql(query)
-        print(f"Dane klientów zostały wyeksportowane do: {local_output_file}")
         con.close()
 
-    export_task = read_s3_hive_and_export()
-
-    # Budowanie komendy generatora
-    templated_offset_2 = "{{ ti.execution_date.strftime('%Y%m%d30%M%S') }}"
-    templated_transactions_output_file_2 = f"{DBT_BOOKSTORE_LAB_DIR}/transactions-existing-{templated_date_nodash}.json"
-    generate_data_command_existing_customers = (
-        f"python {GENERATOR_SCRIPT_PATH} "
-        f"--generate transactions "
-        f"--customers-input {local_output_file} " # Używamy dynamicznego offsetu
-        f"--transactions-offset {templated_offset_2} " # Używamy dynamicznego offsetu
-        f"--transactions-output {templated_transactions_output_file_2} "
-        f"--start-date {templated_date_dash} "
-        f"--end-date {templated_date_dash}"
-    )
-
-    @task.bash
-    def generate_transactions_for_existing_customers() -> str:
-        return generate_data_command_existing_customers
-
-    transactions_for_existing_customers = generate_transactions_for_existing_customers()
-
-    s3_transactions_target_path_2 = f"s3://{S3_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-existing-{templated_date_nodash}.json"
-    upload_transactions_to_s3_command = f"aws s3 cp {templated_transactions_output_file_2} {s3_transactions_target_path_2}"
-
-    @task.bash
-    def uploading_transactions_to_s3() -> str:
-        return upload_transactions_to_s3_command
-
-    upload_transactions_to_s3 = uploading_transactions_to_s3()
-
-    generate_daily_data_task >> export_task >> transactions_for_existing_customers >> upload_transactions_to_s3
+    export_task = read_gcs_hive_and_export()
 ```
 
-#### Analiza danych z wykorzystaniem AWS Athena
+#### Analiza danych z wykorzystaniem BigQuery
 
-Na koniec zweryfikujemy możliwość analizy danych za pomocą usługi AWS Athena.
- 
+W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
+
+### Analiza struktury i przepływu danych (Lab 04)
+
+Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i TaskFlow), przeanalizujmy architekturę rozwiązania.
+
+1. **Weryfikacja struktury Hive w GCS:** Wykonaj polecenie, aby zobaczyć, jak Airflow zorganizował dane w chmurze (pamiętaj o podstawieniu nazwy swojego bucketu):
+   ```shell
+   gsutil ls -R gs://<nazwa_bucketu>/data-lake/raw-data/
+   ```
+   - Zauważ strukturę folderów: `date=YYYY-MM-DD`. To jest właśnie **Hive Partitioning**. Dlaczego jest to istotne? Nowoczesne silniki (BigQuery, DuckDB, Spark) potrafią "przeskoczyć" foldery z datami, których nie potrzebują w zapytaniu (tzw. *partition pruning*).
+
+2. **Analiza zadania TaskFlow:** Sprawdź logi zadania `read_gcs_hive_and_export`. 
+   - Zwróć uwagę na zapytanie SQL użyte w DuckDB. Funkcja `read_csv_auto` z parametrem `hive_partitioning=TRUE` automatycznie dodała kolumnę `date` do danych, mimo że nie było jej wewnątrz plików CSV!
+   - Sprawdź, czy plik wynikowy został utworzony lokalnie: `ls -l /tmp/all_customers.csv`. Czy zawiera on dane ze wszystkich dni, dla których uruchomiono generator?
+
+3. **Zrozumienie parametru DS:** W kodzie DAGa użyliśmy `{{ ds }}` oraz `{{ ds_nodash }}`. 
+   - Sprawdź w interfejsie Airflow (zakładka **Rendered Template**) dla zadania `generate_daily_data`, na jakie konkretne wartości zostały zamienione te zmienne. 
+   - Pamiętaj: w Airflow `ds` (execution_date) to początek interwału danych, co zazwyczaj oznacza datę "wczorajszą" względem momentu uruchomienia (dlatego w logach widniała data z dnia poprzedniego).
+
+4. **Weryfikacja zmiennych:** Przejdź do `Admin -> Variables`. 
+   - Czy zmiana wartości `GCS_bucket_name` na nieistniejący bucket spowoduje błąd całego DAGa, czy tylko konkretnych zadań? Przetestuj to (pamiętaj o przywróceniu poprawnej nazwy).
+
+> PYTANIE: Dlaczego w zadaniu `read_gcs_hive_and_export` używamy `database=':memory:'` zamiast łączyć się z naszym plikiem `bookstore_dwh.ddb`?
+
+> PYTANIE: Jakie są zalety przechowywania surowych danych (raw data) w GCS w formacie Hive, zamiast ładowania ich bezpośrednio do bazy DuckDB przy każdym uruchomieniu?
+
+
 ### Zadania dodatkowe:
-1. Korzystając z dbt utwórz modele w donwstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.
+1. Korzystając z dbt utwórz modele w downstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.
 2. Wykorzystaj materializację `incremental`, która będzie ładowała do 'hurtowni danych' wyłącznie nowe rekordy.
-3. Zaproponuj dodatkowe pola techniczne zawierające np. informacje o dacie ładowania, pliku źródłowym, ostatniej aktualizaji itp. i zaimplementuj je w modelu
+3. Zaproponuj dodatkowe pola techniczne zawierające np. informacje o dacie ładowania, pliku źródłowym, ostatniej aktualizacji itp. i zaimplementuj je w modelu.
 
-## Usunięcie kosztownych zasobów
-
-Większość zasobów, z których korzystamy podczas laboratorium generuje pomijalne lub zerowe koszty, jednak wirtualna maszyna 
-generuje istotne dla dostępnego w ramach laboratorium limitu koszty. W celu usunięcia tylko wirtualnej maszyny możliwe jest 
-usunięcie celowanego zasobu oraz zasobów od niego zależnych. W tym celu uruchom:
-
-```shell
-terraform destroy -target=aws_instance.lab_instance
-```
-
-airflow dags backfill \
-    --start-date 2025-05-20 \
-    --end-date 2025-05-22 \
-    daily_data_generator
