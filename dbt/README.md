@@ -1024,40 +1024,40 @@ Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upew
 ### Przesyłanie danych do Google Cloud Storage (GCS)
 
 W inżynierii danych bardzo często wykorzystuje się koncepcję data lake, umieszczając dane w kontenerach takich jak GCS, 
-często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS, tak aby 
-znalazły się w ścieżce: 
-
-```
-gs://<nazwa_bucketu>/data-lake/raw-data/<rodzaj-pliku>/date=<data-generacji>/<nazwa-pliku>
-```
-
-gdzie `<rodzaj-pliku>` to odpowiednio `customers` lub `transactions`, `<data-generacji>` pobierana jest ze zmiennej `templated_date_dash`, a `<nazwa-bucketu>` jest pobierana ze zmiennej globalnej `GCS_bucket_name` zdefiniowanej w interfejsie Airflow.
+często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS. Zamiast 
+używać generycznego `BashOperator`, wykorzystamy dedykowany operator `LocalFilesystemToGCSOperator`, który jest częścią 
+pakietu dostawcy Google dla Airflow.
 
 Do aktualnego DAGa dodaj następujące fragmenty:
 - w sekcji importów:
     ```python
     from airflow.models import Variable
+    from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
     ```
 - w sekcji konfiguracji:
     ```python
     GCS_BUCKET_NAME = Variable.get("GCS_bucket_name")
     
-    gcs_customers_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
-    gcs_transactions_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
-    
-    upload_customers_to_gcs_command = f"gsutil cp {templated_customers_output_file} {gcs_customers_target_path}"
-    upload_transactions_to_gcs_command = f"gsutil cp {templated_transactions_output_file} {gcs_transactions_target_path}"
+    # Ścieżki docelowe w formacie Hive
+    gcs_customers_target_path = f"data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
+    gcs_transactions_target_path = f"data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
     ```
-- wewnątrz definicji DAG:
+- wewnątrz definicji DAG (zamiast BashOperator):
     ```python
-    upload_customers_to_gcs_task = BashOperator(
+    upload_customers_to_gcs_task = LocalFilesystemToGCSOperator(
         task_id='upload_customers_to_gcs',
-        bash_command=upload_customers_to_gcs_command,
+        src=templated_customers_output_file,
+        dst=gcs_customers_target_path,
+        bucket=GCS_BUCKET_NAME,
+        gcp_conn_id='google_cloud_default', # Wykorzystuje domyślne połączenie skonfigurowane w Airflow
     )
 
-    upload_transactions_to_gcs_task = BashOperator(
+    upload_transactions_to_gcs_task = LocalFilesystemToGCSOperator(
         task_id='upload_transactions_to_gcs',
-        bash_command=upload_transactions_to_gcs_command,
+        src=templated_transactions_output_file,
+        dst=gcs_transactions_target_path,
+        bucket=GCS_BUCKET_NAME,
+        gcp_conn_id='google_cloud_default',
     )
     ```
 - w sekcji zależności:
@@ -1065,13 +1065,33 @@ Do aktualnego DAGa dodaj następujące fragmenty:
     verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
     ```
 
-### Ustawienie zmiennych
+> UWAGA: Zauważ, że w `LocalFilesystemToGCSOperator` parametr `dst` nie zawiera prefiksu `gs://`, ponieważ nazwę bucketu podajemy w osobnym polu `bucket`.
 
-Aby DAG działał poprawnie, należy utworzyć zmienną `GCS_bucket_name` w menu `Admin -> Variables`. W polu `Val` umieść nazwę bucketu GCS, który został utworzony w laboratorium `terraform/lab-03`.
+### Ustawienie zmiennych i połączeń
+
+Aby DAG działał poprawnie:
+1. Utwórz zmienną `GCS_bucket_name` w menu `Admin -> Variables`.
+2. Domyślne połączenie `google_cloud_default` (dostępne w `Admin -> Connections`) zazwyczaj nie wymaga edycji na maszynie VM w GCP, ponieważ Airflow automatycznie wykryje konto serwisowe przypisane do instancji.
 
 #### Konfiguracja dostępu do GCP
 
 Wirtualna maszyna w GCP posiada domyślnie skonfigurowany dostęp do usług Cloud Storage za pośrednictwem przypisanego konta serwisowego. Nie jest wymagana dodatkowa konfiguracja `gsutil` ani plików credentials.
+
+> **UWAGA - Rozwiązywanie problemów:** Jeśli po dodaniu operatora `LocalFilesystemToGCSOperator` w interfejsie Airflow pojawi się błąd `ModuleNotFoundError: No module named 'airflow.providers.google'`, oznacza to, że w Twoim środowisku Python nie jest zainstalowany pakiet dostawcy Google. Możesz to naprawić na dwa sposoby:
+>
+> 1. **Zainstaluj brakujący pakiet:** Wykonaj w terminalu polecenie:
+>    ```shell
+>    pip install apache-airflow-providers-google
+>    ```
+>    Następnie zrestartuj Airflow.
+>
+> 2. **Użyj alternatywy (BashOperator):** Jeśli nie chcesz instalować dodatkowych pakietów, możesz pozostać przy `BashOperator` i narzędziu `gsutil`, które jest domyślnie dostępne na maszynie VM. Wtedy Twoje zadania będą wyglądać tak:
+>    ```python
+>    upload_customers_to_gcs_task = BashOperator(
+>        task_id='upload_customers_to_gcs',
+>        bash_command=f"gsutil cp {templated_customers_output_file} gs://{GCS_BUCKET_NAME}/{gcs_customers_target_path}",
+>    )
+>    ```
 
 ### Cathup & Backfilling
 
