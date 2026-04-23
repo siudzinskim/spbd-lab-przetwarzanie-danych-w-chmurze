@@ -1351,13 +1351,13 @@ models:
 
 ### Krok 7: Definicja źródeł (Sources)
 
-Plik `models/staging/sources.yml` musi teraz wskazywać na dataset źródłowy:
+Plik `models/staging/sources.yml` musi teraz wskazywać na dataset źródłowy. Zamiast wpisywać nazwę projektu na sztywno, użyjemy zmiennej Jinja `{{ target.project }}`, która automatycznie pobierze ID projektu z Twojego pliku `profiles.yml`:
 
 ```yaml
 version: 2
 sources:
   - name: gcs_raw
-    database: <TWOJ_PROJEKT_GCP>
+    database: "{{ target.project }}"
     schema: bookstore_src
     tables:
       - name: ext_customers
