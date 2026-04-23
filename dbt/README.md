@@ -1177,7 +1177,324 @@ Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i T
 
 ## Lab 05
 
-### Analiza danych z wykorzystaniem BigQuery
+## Lab 05: BigQuery & External Tables
 
-W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
+W tym laboratorium nauczymy się, jak wykorzystać BigQuery do analizy danych składowanych w GCS (Data Lake) bez konieczności ich fizycznego importowania. Wykorzystamy **External Tables** oraz automatyczne wykrywanie partycji Hive.
+
+### Krok 0: Przygotowanie datasetów (Warstwy DWH)
+
+W profesjonalnych projektach dane dzielimy na warstwy, aby oddzielić dane surowe od przetworzonych i udostępnianych użytkownikom końcowym. Utworzymy następujące datasety w regionie **EU**:
+
+1. **`bookstore_src`**: Tutaj będą żyły tabele zewnętrzne (External Tables).
+2. **`bookstore_stg`**: Warstwa Staging - lekkie czyszczenie i standaryzacja.
+3. **`bookstore_dwh`**: Główna hurtownia - tabele Faktów i Wymiarów.
+4. **`bookstore_semantic`**: Warstwa semantyczna - gotowe raporty i widoki dla BI.
+5. **`bookstore_security`**: Bezpieczne miejsce na klucze szyfrujące (keystore).
+
+#### Metoda SQL:
+```sql
+CREATE SCHEMA IF NOT EXISTS `bookstore_src` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_stg` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_dwh` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_semantic` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_security` OPTIONS(location = 'EU');
+```
+
+### Krok 1: Tworzenie tabel zewnętrznych w warstwie SRC
+
+Zamiast kopiować dane, stworzymy "okno" na dane w GCS. BigQuery odczyta metadane i pozwoli na odpytywanie plików CSV oraz JSON bezpośrednio z Twojego bucketu.
+
+#### Tworzenie tabeli dla klientów (CSV)
+
+Otwórz konsolę BigQuery i wykonaj poniższe zapytanie DDL (pamiętaj o podstawieniu nazwy swojego bucketu w `uris`):
+
+```sql
+CREATE OR REPLACE EXTERNAL TABLE `bookstore_src.ext_customers`
+WITH PARTITION COLUMNS (date DATE)
+OPTIONS (
+    format = 'CSV',
+    uris = ['gs://<TWOJ_BUCKET>/data-lake/raw-data/customers/*'],
+    hive_partition_uri_prefix = 'gs://<TWOJ_BUCKET>/data-lake/raw-data/customers/',
+    skip_leading_rows = 1
+);
+```
+
+*(Dla transakcji wykonaj analogiczny krok przez GUI, wybierając dataset `bookstore_src`)*.
+
+#### Tworzenie tabeli dla transakcji (JSON) - Metoda przez GUI
+
+Tym razem użyjemy interfejsu graficznego BigQuery, aby zobaczyć, jak skonfigurować partycjonowanie bez pisania SQL.
+
+1.  W konsoli BigQuery, kliknij trzy kropki obok swojego zestawu danych `bookstore` i wybierz **Create table**.
+2.  **Source:**
+    - Create table from: **Google Cloud Storage**
+    - Select file from GCS bucket: `gs://<TWOJ_BUCKET>/data-lake/raw-data/transactions/*`
+    - File format: **JSONL (Newline delimited JSON)**
+3.  **Destination:**
+    - Table: `ext_transactions`
+4.  **Schema:**
+    - Zaznacz **Auto detect**.
+5.  **Partitioning and cluster settings (Kluczowy krok):**
+    - Zaznacz checkbox **Source data partitioning**.
+    - **Source URI prefix:** `gs://<TWOJ_BUCKET>/data-lake/raw-data/transactions/`
+    - **Partition inference mode:** Upewnij się, że wybrane jest **Automatically infer types** (BigQuery wykryje kolumnę `date` na podstawie struktury folderów).
+6.  Kliknij **Create table**.
+
+### Krok 2: Analiza danych i Partition Pruning
+
+Dzięki `hive_partition_uri_prefix`, BigQuery automatycznie dodał kolumnę `date` do Twoich danych. Sprawdźmy to!
+
+1. **Podstawowe zapytanie:**
+   ```sql
+   SELECT * FROM `bookstore_src.ext_customers` LIMIT 10;
+   ```
+   *Zauważ, że kolumna `date` znajduje się na końcu, mimo że nie ma jej w plikach CSV.*
+
+2. **Wykorzystanie partycji:**
+   Sprawdź, ile danych zostanie przeskanowanych przez BigQuery przy filtrowaniu po dacie:
+   ```sql
+   SELECT count(*) 
+   FROM `bookstore_src.ext_transactions` 
+   WHERE date = CURRENT_DATE();
+   ```
+   *W prawym górnym rogu edytora SQL zobaczysz informację o rozmiarze skanowanych danych. Dzięki partycjonowaniu Hive, BigQuery pobierze tylko te pliki, które znajdują się w folderze odpowiadającym danej dacie.*
+
+### Krok 3: Udowodnienie niemodyfikowalności (Immutable)
+
+Tabele zewnętrzne (External Tables) są z definicji **tylko do odczytu** z poziomu SQL. Spróbuj wykonać poniższe operacje na tabeli zewnętrznej:
+
+1. **Próba usunięcia danych:**
+   ```sql
+   DELETE FROM `bookstore_src.ext_customers` WHERE age > 50;
+   ```
+   *Oczekiwany rezultat: Błąd informujący, że operacje DML nie są wspierane dla tabel zewnętrznych.*
+
+2. **Próba aktualizacji:**
+   ```sql
+   UPDATE `bookstore_src.ext_customers` SET first_name = 'TEST' WHERE customer_id = 1;
+   ```
+   *Oczekiwany rezultat: Błąd.*
+
+> **WNIOSEK:** Tabele zewnętrzne służą do odczytu danych (E - Extract). Aby móc je modyfikować i optymalizować, musimy je załadować do natywnych tabel BigQuery (L - Load), co zrobimy w kolejnym kroku.
+
+
+### Krok 4: dbt & DWH - Od Data Lake do RODO (Crypto-shredding)
+
+W tym kroku przekształcimy nasze surowe dane z GCS w profesjonalną hurtownię danych w BigQuery. Wykorzystamy dbt do automatyzacji tego procesu oraz zaimplementujemy zaawansowaną technikę ochrony prywatności: **Crypto-shredding**.
+
+#### Koncepcja Crypto-shredding
+Zamiast fizycznie usuwać rekordy klienta (co jest trudne w dużych zbiorach i psuje spójność analityczną), szyfrujemy dane wrażliwe (PII) unikalnym kluczem dla każdego użytkownika. 
+- **Dane wrażliwe:** email, numer telefonu, nazwisko.
+- **Klucze:** Przechowywane w oddzielnej, zabezpieczonej tabeli `user_keys`.
+- **Zapomnienie (RODO):** Usunięcie klucza użytkownika z tabeli `user_keys` sprawia, że jego dane stają się nieczytelnym ciągiem znaków (shredded), mimo że rekordy w transakcjach nadal istnieją.
+
+### Krok 5: Inicjalizacja nowego projektu dbt dla BigQuery
+
+Zamiast modyfikować poprzedni projekt (który był zoptymalizowany pod DuckDB), utworzymy zupełnie nowy projekt dbt dedykowany dla BigQuery.
+
+1. Przejdź do katalogu laboratorium:
+   ```shell
+   cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/
+   ```
+2. Zainicjalizuj nowy projekt dbt:
+   ```shell
+   dbt init dbt_bq_project --skip-profile-setup
+   ```
+
+3. Utwórz plik `profiles.yml` bezpośrednio w katalogu `/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/`:
+
+```yaml
+dbt_bq_project:
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: <TWOJ_PROJEKT_GCP>
+      dataset: bookstore
+      threads: 4
+      location: EU
+      priority: interactive
+  target: dev
+```
+
+4. Przetestuj połączenie, wskazując jawnie ścieżkę do profilu:
+   ```shell
+   cd dbt_bq_project
+   dbt debug --profiles-dir ../
+   ```
+   *Używamy `--profiles-dir ../`, ponieważ nasz plik `profiles.yml` znajduje się o jeden poziom wyżej niż główny folder projektu dbt.*
+
+5. Aby zapobiec konieczności dodawania przełącznika `--profiles-dir` do każdej kolejnej komendy, ustaw zmienną środowiskową:
+   ```shell
+   export DBT_PROFILES_DIR=/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/
+   ```
+   *Od tego momentu dbt będzie automatycznie szukał profilu we wskazanym katalogu.*
+
+### Krok 6: Konfiguracja dbt_project.yml i targetów
+
+W pliku `dbt_project.yml` skonfigurujemy **custom schemas**, aby dbt automatycznie umieszczał modele w odpowiednich datasetach na podstawie ich lokalizacji w folderach:
+
+```yaml
+models:
+  dbt_bq_project:
+    staging:
+      +schema: stg
+    marts:
+      core:
+        +schema: dwh
+      marketing:
+        +schema: semantic
+    keystore:
+      +schema: security
+```
+*Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw.*
+
+### Krok 7: Definicja źródeł (Sources)
+
+Plik `models/staging/sources.yml` musi teraz wskazywać na dataset źródłowy:
+
+```yaml
+version: 2
+sources:
+  - name: gcs_raw
+    database: <TWOJ_PROJEKT_GCP>
+    schema: bookstore_src
+    tables:
+      - name: ext_customers
+      - name: ext_transactions
+```
+
+### Krok 8: Warstwowa implementacja modeli
+
+#### 1. Keystore (`models/keystore/user_keys.sql`) -> dataset: `bookstore_security`
+
+**Dlaczego model inkrementalny?** 
+W przypadku Crypto-shreddingu musimy zagwarantować, że raz wygenerowany klucz dla danego klienta nigdy się nie zmieni. Gdybyśmy użyli zwykłej tabeli, każde uruchomienie generowałoby nowe klucze, co uniemożliwiłoby odczytanie wcześniej zaszyfrowanych danych.
+
+```sql
+{{
+    config(
+        materialized='incremental',
+        unique_key='customer_id'
+    )
+}}
+
+SELECT
+    customer_id,
+    -- Generujemy profesjonalny zestaw kluczy AEAD
+    KEYS.NEW_KEYSET('AEAD_AES_GCM_256') as encryption_key
+FROM {{ source('gcs_raw', 'ext_customers') }}
+
+{% if is_incremental() %}
+  WHERE customer_id NOT IN (SELECT customer_id FROM {{ this }})
+{% endif %}
+```
+
+#### 2. Staging (`models/staging/stg_customers.sql`) -> dataset: `bookstore_stg`
+W tej warstwie anonimizujemy dane wrażliwe oraz naprawiamy błędy w danych źródłowych przy użyciu nowoczesnego SQL (`SELECT * REPLACE`).
+
+```sql
+SELECT
+    c.* REPLACE (
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), first_name, '')) as first_name,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), last_name, '')) as last_name,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), email, '')) as email,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), phone_number, '')) as phone_number,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), address, '')) as address,
+        date as registration_date
+    )
+FROM {{ source('gcs_raw', 'ext_customers') }} c
+JOIN {{ ref('user_keys') }} k ON c.customer_id = k.customer_id
+```
+*Zauważ: Dzięki `REPLACE`, podmieniamy oryginalne wartości wrażliwe na ich zaszyfrowane odpowiedniki oraz naprawiamy `registration_date`, zachowując jednocześnie wszystkie pozostałe kolumny z tabeli źródłowej.*
+
+#### 3. Core DWH (`models/marts/core/dim_customers.sql`) -> dataset: `bookstore_dwh`
+Tu budujemy czyste wymiary gotowe do analizy. Modele w tej warstwie materializujemy jako **tabele**, aby zapewnić wysoką wydajność dla użytkowników końcowych i narzędzi BI.
+
+```sql
+{{ config(materialized='table') }}
+
+SELECT * FROM {{ ref('stg_customers') }}
+```
+
+### Krok 9: Crypto-shredding w praktyce – Laboratorium RODO
+
+W tym kroku sprawdzimy, jak w rzeczywistości działają mechanizmy ochrony danych, które zaimplementowaliśmy.
+
+#### 1. Materializacja projektu
+Uruchom wszystkie modele dbt, aby stworzyć tabele w BigQuery:
+```shell
+dbt run
+```
+w przypadku, jeśli nie została ustawiona zmienna środowiskowa `DBT_PROFILES_DIR` może być konieczne wskazanie ścieżki do profilu, np.
+```shell
+dbt run --profiles-dir=../
+```
+
+#### 2. Weryfikacja w BigQuery i "Audyt" danych
+Przejdź do konsoli Google Cloud. Wykonaj zapytanie, które porówna dane zanonimizowane z ich oryginalną formą (odzyskaną dzięki kluczowi). To pozwoli Ci zrozumieć, jak szyfrowanie zmienia dane:
+
+```sql
+SELECT
+    stg.customer_id,
+    SAFE.AEAD.DECRYPT_STRING(SAFE.FROM_HEX(k.encryption_key), FROM_HEX(stg.email), '') as original_email,
+    stg.email as encrypted_email,
+    SAFE.AEAD.DECRYPT_STRING(SAFE.FROM_HEX(k.encryption_key), FROM_HEX(stg.first_name), '') as original_first_name
+    stg.first_name as encrypted_first_name,
+    k.encryption_key
+FROM `bookstore_stg.stg_customers` stg
+JOIN `bookstore_security.user_keys` k ON stg.customer_id = k.customer_id
+LIMIT 10;
+```
+*Zauważ: Jako administrator masz dostęp do kluczy, więc możesz odtworzyć dane surowe. Jednak analityk pracujący tylko na `bookstore_dwh` widzi tylko `encrypted_email`.*
+#### 3. Symulacja "Prawa do zapomnienia" (RODO)
+Zamiast usuwać rekordy, "niszczymy" klucze szyfrujące dla konkretnych osób.
+
+**A. Unieważnienie kluczy dla 5 losowych klientów:**
+Używamy `UPDATE` zamiast `DELETE`, aby model inkrementalny dbt "widział", że ci klienci już mają przypisany rekord (pusty) i nie generował dla nich nowych kluczy w przyszłości.
+
+```sql
+UPDATE `bookstore_security.user_keys`
+SET encryption_key = NULL
+WHERE customer_id IN (
+  SELECT customer_id FROM `bookstore_security.user_keys` ORDER BY rand() LIMIT 5
+);
+```
+
+**B. Sprawdzenie efektu (bez uruchamiania dbt!):**
+Ponieważ `stg_customers` to **widok**, zmiana w tabeli kluczy jest widoczna natychmiast:
+
+```sql
+-- Sprawdź te same 5 osób w widoku Staging
+SELECT customer_id, first_name, email 
+FROM `bookstore_stg.stg_customers` 
+WHERE email IS NULL;
+```
+*Zauważ: Dane stały się bezużyteczne (NULL), mimo że rekord w plikach źródłowych GCS nadal istnieje. To jest właśnie **Crypto-shredding**.*
+
+**C. Różnica między widokiem a tabelą (DWH):**
+Wykonaj zapytanie do tabeli `dim_customers` w warstwie DWH:
+```sql
+SELECT * FROM `bookstore_dwh.dim_customer` WHERE email IS NULL;
+```
+*Wynik to prawdopodobnie inny. Dlaczego? Bo `dim_customers` to **zmaterializowana tabela**. Aby "zapomnienie" propagowało się do hurtowni, musisz teraz uruchomić `dbt run`.*
+
+---
+### Zadania do wykonania:
+1. **Złączenie tabel (JOIN):** Utwórz zapytanie w BigQuery, które połączy tabelę `ext_transactions` z `ext_customers` po kolumnie `customer_id`. Znajdź 5 krajów, z których pochodzą klienci generujący najwyższy obrót (sumę transakcji).
+2. **Dynamiczne uzupełnianie danych:**
+   - Wybierz datę z przeszłości.
+   - Uruchom backfilling dla tej daty, korzystając z Airflow CLI:
+     ```shell
+     airflow dags backfill --start-date 2026-04-07 --end-date 2026-04-07 daily_data_generator
+     ```
+   - Po zakończeniu zadania w Airflow, wróć do BigQuery i wykonaj zapytanie filtrujące po tej dacie:
+     ```sql
+     SELECT * FROM `bookstore_src.ext_transactions` WHERE date = '2026-04-07';
+     ```
+   - Zaobserwuj, że BigQuery "zauważył" nowe dane w GCS bez jakiejkolwiek zmiany konfiguracji tabeli zewnętrznej.
+3. **Weryfikacja dbt & RODO:**
+   - Wykonaj `dbt run` i zweryfikuj w BigQuery, czy tabela `stg_customers` zawiera zaszyfrowane dane.
+   - **Symulacja RODO:** Usuń jeden rekord z tabeli `user_keys` (np. `DELETE FROM ... WHERE customer_id = ...`). Następnie ponownie uruchom `dbt run`. Co się stało z danymi tego klienta w modelu `stg_customers`? (Zauważ użycie `JOIN` vs `LEFT JOIN`).
+
 
