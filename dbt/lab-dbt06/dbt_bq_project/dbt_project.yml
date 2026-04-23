@@ -33,9 +33,12 @@ models:
   dbt_bq_project:
     staging:
       +schema: stg
+    prep:
+      +schema: int
     dwh:
       core:
         +schema: dwh
+        +materialized: table
     semantic:
       +schema: semantic
     keystore:

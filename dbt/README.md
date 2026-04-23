@@ -1277,6 +1277,20 @@ Tabele zewnętrzne (External Tables) są z definicji **tylko do odczytu** z pozi
 
 > **WNIOSEK:** Tabele zewnętrzne służą do odczytu danych (E - Extract). Aby móc je modyfikować i optymalizować, musimy je załadować do natywnych tabel BigQuery (L - Load), co zrobimy w kolejnym kroku.
 
+---
+### Zadania do wykonania:
+1. **Złączenie tabel (JOIN):** Utwórz zapytanie, które połączy tabelę `ext_transactions` z `ext_customers` po kolumnie `customer_id`. Znajdź 5 krajów, z których pochodzą klienci generujący najwyższy obrót (sumę transakcji).
+2. **Dynamiczne uzupełnianie danych:**
+   - Wybierz datę z przeszłości.
+   - Uruchom backfilling dla tej daty, korzystając z Airflow CLI:
+     ```shell
+     airflow dags backfill --start-date 2026-04-07 --end-date 2026-04-07 daily_data_generator
+     ```
+   - Po zakończeniu zadania w Airflow, wróć do BigQuery i wykonaj zapytanie filtrujące po tej dacie:
+     ```sql
+     SELECT * FROM `bookstore.ext_transactions` WHERE date = '2026-04-07';
+     ```
+   - Zaobserwuj, że BigQuery "zauważył" nowe dane w GCS bez jakiejkolwiek zmiany konfiguracji tabeli zewnętrznej. To jest właśnie potęga architektury Data Lake!
 
 ### Krok 4: dbt & DWH - Od Data Lake do RODO (Crypto-shredding)
 
@@ -1339,13 +1353,13 @@ models:
   dbt_bq_project:
     staging:
       +schema: stg
-    marts:
+    dwh:
       core:
         +schema: dwh
-      marketing:
-        +schema: semantic
+    semantic:
+      +schema: semantic
     keystore:
-      +schema: security
+      +schema: security`
 ```
 *Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw.*
 
@@ -1408,7 +1422,7 @@ JOIN {{ ref('user_keys') }} k ON c.customer_id = k.customer_id
 ```
 *Zauważ: Dzięki `REPLACE`, podmieniamy oryginalne wartości wrażliwe na ich zaszyfrowane odpowiedniki oraz naprawiamy `registration_date`, zachowując jednocześnie wszystkie pozostałe kolumny z tabeli źródłowej.*
 
-#### 3. Core DWH (`models/marts/core/dim_customers.sql`) -> dataset: `bookstore_dwh`
+#### 3. Core DWH (`models/dwh/core/dim_customers.sql`) -> dataset: `bookstore_dwh`
 Tu budujemy czyste wymiary gotowe do analizy. Modele w tej warstwie materializujemy jako **tabele**, aby zapewnić wysoką wydajność dla użytkowników końcowych i narzędzi BI.
 
 ```sql
@@ -1475,26 +1489,250 @@ WHERE email IS NULL;
 **C. Różnica między widokiem a tabelą (DWH):**
 Wykonaj zapytanie do tabeli `dim_customers` w warstwie DWH:
 ```sql
-SELECT * FROM `bookstore_dwh.dim_customer` WHERE email IS NULL;
+SELECT * FROM `bookstore_dwh.dim_customers` WHERE email IS NULL;
 ```
 *Wynik to prawdopodobnie inny. Dlaczego? Bo `dim_customers` to **zmaterializowana tabela**. Aby "zapomnienie" propagowało się do hurtowni, musisz teraz uruchomić `dbt run`.*
 
 ---
-### Zadania do wykonania:
-1. **Złączenie tabel (JOIN):** Utwórz zapytanie w BigQuery, które połączy tabelę `ext_transactions` z `ext_customers` po kolumnie `customer_id`. Znajdź 5 krajów, z których pochodzą klienci generujący najwyższy obrót (sumę transakcji).
-2. **Dynamiczne uzupełnianie danych:**
-   - Wybierz datę z przeszłości.
-   - Uruchom backfilling dla tej daty, korzystając z Airflow CLI:
-     ```shell
-     airflow dags backfill --start-date 2026-04-07 --end-date 2026-04-07 daily_data_generator
-     ```
-   - Po zakończeniu zadania w Airflow, wróć do BigQuery i wykonaj zapytanie filtrujące po tej dacie:
-     ```sql
-     SELECT * FROM `bookstore_src.ext_transactions` WHERE date = '2026-04-07';
-     ```
-   - Zaobserwuj, że BigQuery "zauważył" nowe dane w GCS bez jakiejkolwiek zmiany konfiguracji tabeli zewnętrznej.
-3. **Weryfikacja dbt & RODO:**
-   - Wykonaj `dbt run` i zweryfikuj w BigQuery, czy tabela `stg_customers` zawiera zaszyfrowane dane.
-   - **Symulacja RODO:** Usuń jeden rekord z tabeli `user_keys` (np. `DELETE FROM ... WHERE customer_id = ...`). Następnie ponownie uruchom `dbt run`. Co się stało z danymi tego klienta w modelu `stg_customers`? (Zauważ użycie `JOIN` vs `LEFT JOIN`).
+
+## Lab 06: Zaawansowane modelowanie w BigQuery – Warstwy Prepared (PREP) i DWH
+
+W tym laboratorium rozbudujemy naszą hurtownię danych o brakujące elementy, wprowadzimy bardziej rygorystyczną strukturę warstwową (PREP) oraz nauczymy się efektywnie pracować z danymi zagnieżdżonymi (Nested Data) w BigQuery.
+
+### Cel laboratorium:
+1. Implementacja warstwy **Prepared (PREP)** w celu optymalizacji i reużywalności kodu SQL.
+2. Praca z typami **NESTED** i **REPEATED** (JSON) w BigQuery – technika `UNNEST`.
+3. Budowa pełnej warstwy **DWH** (Fakty, Wymiary, Metryki).
+4. Refaktoryzacja projektu dbt w celu poprawy czytelności i łatwości utrzymania.
+
+### Krok 0: Programowy eksport danych (DuckDB -> Parquet przez HMAC)
+
+Zamiast polegać na domyślnej autentykacji, nauczymy się korzystać z kluczy **HMAC**, które pozwalają DuckDB komunikować się z GCS za pomocą protokołu kompatybilnego z S3. Wyeksportujemy dane do formatu **Parquet**, który jest zoptymalizowany pod kątem wydajności i przechowywania metadanych.
+
+1. **Wygeneruj klucze HMAC w konsoli Google Cloud:**
+   - Przejdź do [Cloud Storage -> Settings](https://console.cloud.google.com/storage/settings).
+   - Wybierz zakładkę **Interoperability**.
+   - W sekcji "Access keys for your user account" kliknij **Create a key**.
+   - **Skopiuj i zachowaj bezpiecznie:** `Access Key` oraz `Secret`.
+
+2. **Uruchom DuckDB i skonfiguruj dostęp:**
+   ```shell
+   duckdb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb
+   ```
+
+3. **Zainstaluj rozszerzenia i skonfiguruj Secret:**
+   Wewnątrz CLI DuckDB wykonaj (podstawiając swoje klucze):
+   ```sql
+   INSTALL httpfs;
+   LOAD httpfs;
+
+   CREATE SECRET (
+       TYPE gcs,
+       KEY_ID 'TWOJ_ACCESS_KEY',
+       SECRET 'TWOJ_SECRET'
+   );
+   ```
+
+4. **Eksport tabeli do formatu Parquet bezpośrednio na GCS:**
+   ```sql
+   -- Pamiętaj o podstawieniu nazwy swojego bucketu!
+   COPY books TO 'gs://<TWOJ_BUCKET>/data-lake/raw-data/books/books.parquet' (FORMAT 'PARQUET');
+   ```
+
+5. **Zamknij DuckDB:**
+   ```sql
+   .quit
+   ```
+
+### Krok 1: Dodanie danych źródłowych w BigQuery (Format Parquet)
+
+Format Parquet, podobnie jak Avro, przechowuje schemat danych, co czyni proces tworzenia tabeli w BigQuery bardzo prostym.
+
+1. **Utwórz tabelę zewnętrzną dla książek:**
+   W konsoli BigQuery wykonaj poniższe zapytanie, wskazując format `PARQUET`.
+
+   ```sql
+   CREATE OR REPLACE EXTERNAL TABLE `bookstore_src.ext_books`
+   OPTIONS (
+       format = 'PARQUET',
+       uris = ['gs://<TWOJ_BUCKET>/data-lake/raw-data/books/books.parquet']
+   );
+   ```
+
+2. **Weryfikacja:**
+   Sprawdź, czy dane są widoczne:
+   ```sql
+   SELECT * FROM `bookstore_src.ext_books` LIMIT 5;
+   ```
+
+### Krok 2: Nowa struktura projektu dbt
+
+W profesjonalnych projektach dbt, folder `models` dzielimy na podfoldery odpowiadające warstwom przetwarzania. W tym laboratorium wprowadzamy:
+- **`staging`**: (już znamy) bezpośrednie odwzorowanie źródeł z minimalnym czyszczeniem.
+- **`prep`**: warstwa "robocza", gdzie łączymy dane z różnych źródeł stagingowych, ale jeszcze nie wystawiamy ich użytkownikom.
+- **`dwh`**: warstwa końcowa, zawierająca tabele zoptymalizowane pod kątem raportowania (Fakty i Wymiary).
+- **`keystore`**: (już znamy) miejsce na klucze do szyfrowania.
+
+**Dopasowanie modelu `stg_books.sql`:**
+Ponieważ format Parquet zachował oryginalne nazwy kolumn z pliku źródłowego (w tym wielkie litery i spacje, które BigQuery zamieniło na podkreślenia), musimy zaktualizować model stagingowy, aby mapował te nazwy na nasz standard:
+
+```sql
+-- models/staging/stg_books.sql
+SELECT
+    index as book_id,
+    Publishing_Year as publishing_year,
+    Book_Name as title,
+    Author as author,
+    language_code,
+    Author_Rating as author_rating,
+    Book_average_rating as book_average_rating,
+    Book_ratings_count as book_ratings_count,
+    genre as category,
+    gross_sales,
+    publisher_revenue,
+    sale_price as price,
+    sales_rank,
+    Publisher_ as publisher,
+    units_sold
+FROM {{ source('gcs_raw', 'ext_books') }}
+```
+
+Przejdź do folderu laboratorium 06:
+```shell
+cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+```
+
+### Krok 3: Warstwa Prepared (PREP) i Spójność Danych (Data Integrity)
+
+Często te same operacje złączenia (JOIN) są powtarzane w wielu modelach końcowych. Zamiast kopiować kod, tworzymy model Prepared (PREP). W BigQuery, aby wzbogacić dane zagnieżdżone (tablicę produktów) o dane z innej tabeli (książki), musimy zastosować technikę **Rozpłaszczenia -> Złączenia -> Ponownego Zagregowania (Flatten -> Join -> Aggregate)**. 
+
+**Obsługa błędnych danych (Klucz Techniczny -1):**
+Zamiast "cicho" gubić dane lub pozwalać na pojawienie się `NULL`, zastosujemy profesjonalną technikę **Dummy Record**. Każdy nieprawidłowy `book_id` (np. tekst "UNKNOWN") zostanie zamieniony na `-1`, a w tabeli książek utworzymy sztuczny rekord o tym identyfikatorze.
+
+**Model `stg_books.sql` (z rekordem technicznym):**
+```sql
+-- models/staging/stg_books.sql
+WITH source AS (
+    SELECT
+        index as book_id,
+        -- ... pozostałe kolumny ...
+    FROM {{ source('gcs_raw', 'ext_books') }}
+),
+
+dummy_record AS (
+    SELECT
+        -1 as book_id,
+        'Nieznana Książka (Błąd danych)' as title,
+        'System' as author,
+        -- ... pozostałe kolumny wypełnione wartościami domyślnymi ...
+)
+
+SELECT * FROM source UNION ALL SELECT * FROM dummy_record
+```
+
+**Model `prep_transactions_enriched.sql` (z użyciem COALESCE):**
+```sql
+-- models/prep/prep_transactions_enriched.sql
+-- ... (CTE: transactions, customers, books) ...
+
+-- Krok 1: Rozpłaszczamy pozycje i łączymy z informacjami o książkach
+-- Używamy COALESCE i SAFE_CAST, aby zamienić błędy na nasz klucz techniczny -1
+flattened_items AS (
+    SELECT
+        t.transaction_id,
+        STRUCT(
+            COALESCE(SAFE_CAST(i.book_id AS INT64), -1) as book_id,
+            b.title as book_title,
+            b.author as book_author,
+            -- ... pozostałe kolumny ...
+        ) as item_enriched
+    FROM transactions t
+    CROSS JOIN UNNEST(t.items) i
+    LEFT JOIN books b ON COALESCE(SAFE_CAST(i.book_id AS INT64), -1) = b.book_id
+),
+-- ... (Krok 2: ARRAY_AGG, Krok 3: FINAL JOIN) ...
+```
+
+### Krok 4: Handling Nested Data – UNNEST vs Nested
+
+BigQuery świetnie radzi sobie z danymi zagnieżdżonymi. Dzięki wzbogaceniu danych w kroku poprzednim, nasz model płaski staje się bardzo prosty do zdefiniowania, a jednocześnie niezwykle bogaty w informacje.
+
+**Model `flat_transactions.sql` (Płaski):**
+Używamy `UNNEST(items)`, aby "rozpłaszczyć" transakcje. Zauważ, że pola takie jak `book_title` czy `book_author` są już dostępne wewnątrz struktury `item`.
+
+```sql
+-- models/dwh/core/flat_transactions.sql
+{{ config(materialized='table') }}
+
+SELECT
+    t.transaction_id,
+    t.customer_id,
+    t.transaction_date,
+    t.cash_register,
+    t.cashier,
+    t.first_name,
+    t.last_name,
+    t.email,
+    t.registration_date,
+    item.book_id,
+    item.book_title,
+    item.book_author,
+    item.book_category,
+    item.unit_price,
+    item.quantity,
+    item.unit_price * item.quantity as total_item_price
+FROM {{ ref('prep_transactions_enriched') }} t,
+UNNEST(items) as item
+```
+
+### Krok 5: Warstwa DWH – Fakty i Metryki
+
+W warstwie `dwh/core` tworzymy ostateczne tabele, które będą służyć do analiz.
+
+1. **`fct_transactions`**: Tabela faktów, oparta na modelu płaskim. Zawiera najbardziej szczegółowe dane o sprzedaży.
+2. **`dim_customers` i `dim_books`**: Tabele wymiarów, zawierające atrybuty opisowe.
+3. **`metrics_daily_sales`**: Model agregujący, który oblicza dzienne statystyki (sprzedaż, liczba klientów, przychód).
+4. **`nested_transactions` / `flat_transactions`**: Zmaterializowane modele główne.
+
+**Model `metrics_daily_sales.sql`:**
+```sql
+-- models/dwh/core/metrics_daily_sales.sql
+SELECT
+    transaction_date,
+    COUNT(DISTINCT transaction_id) as total_transactions,
+    COUNT(DISTINCT customer_id) as total_customers,
+    SUM(quantity) as total_items_sold,
+    SUM(total_item_price) as total_revenue
+FROM {{ ref('fct_transactions') }}
+GROUP BY 1
+ORDER BY 1 DESC
+```
+
+### Krok 6: Uruchomienie i weryfikacja
+
+1. Skonfiguruj profil dbt (możesz użyć pliku `profiles.yml` z folderu `lab-dbt06`).
+2. Ustaw zmienną środowiskową lub przejdź do folderu projektu:
+   ```shell
+   export DBT_PROFILES_DIR=/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/
+   cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+   ```
+3. Uruchom projekt:
+   ```shell
+   dbt run
+   ```
+4. Sprawdź w BigQuery, czy tabele pojawiły się w odpowiednich datasetach (`bookstore_stg`, `bookstore_dwh`, `bookstore_security`).
+
+### Podsumowanie Lab 06
+
+W tym laboratorium nauczyliście się:
+*   Jak budować **warstwową architekturę** dbt (Staging -> Prepared (PREP) -> DWH).
+*   Jak efektywnie używać **modeli Prepared (PREP)** do unikania powtórzeń kodu.
+*   Jak operować na danych zagnieżdżonych w BigQuery za pomocą **UNNEST**.
+*   Różnicy między podejściem **Nested** a **Flat** w modelowaniu danych.
+*   Tworzenia modeli **metryk i agregacji** gotowych do wizualizacji.
+
+> **PYTANIE:** Dlaczego model `prep_transactions_enriched` zmaterializowaliśmy (domyślnie) jako widok, a nie tabelę?
+
+> **PYTANIE:** W jakich sytuacjach lepiej jest zostawić dane w formacie Nested zamiast ich "płaskiego" odpowiednika?
 
 

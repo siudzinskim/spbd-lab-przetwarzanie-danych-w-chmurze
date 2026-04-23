@@ -1,0 +1,10 @@
+version: 2
+
+sources:
+  - name: gcs_raw
+    database: "{{ target.project }}"
+    schema: bookstore_src
+    tables:
+      - name: ext_customers
+      - name: ext_transactions
+      - name: ext_books
