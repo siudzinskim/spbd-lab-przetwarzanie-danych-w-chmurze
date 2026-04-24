@@ -1,0 +1,177 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 06 - Comprehensive DWH Modeling & BigQuery Optimization</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/api/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 06</h1>
+					<h3>Kompleksowe Modelowanie DWH i Optymalizacja w BigQuery</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Cel Laboratorium -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Budowa pełnego stosu warstwowego DWH</li>
+						<li>Implementacja <strong>Star Schema</strong> (Fakty i Wymiary)</li>
+						<li>Optymalizacja wydajności: <strong>Nested & Repeated Fields</strong></li>
+						<li>Porównanie modeli: Flat vs. Nested vs. Star Schema</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Architektura Warstwowa -->
+				<section>
+					<h2>Architektura Przetwarzania</h2>
+					<div style="font-size: 0.8em; display: grid; grid-template-columns: 1fr 1fr; gap: 20px;">
+						<div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+							<h4>1. Staging (STG)</h4>
+							<p>Widoki na surowych danych. Standaryzacja typów i nazw.</p>
+						</div>
+						<div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+							<h4>2. Prepared (PREP)</h4>
+							<p>Wstępna konsolidacja. Budowa "Wide Tables" do dalszej obróbki.</p>
+						</div>
+						<div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+							<h4>3. Core (DWH)</h4>
+							<p>Model docelowy. Fakty, Wymiary oraz modele zoptymalizowane pod BigQuery.</p>
+						</div>
+						<div style="background: rgba(255,255,255,0.1); padding: 15px; border-radius: 10px;">
+							<h4>4. Semantic</h4>
+							<p>Warstwa raportowa. Gotowe odpowiedzi na pytania biznesowe.</p>
+						</div>
+					</div>
+				</section>
+
+				<!-- Slajd 4: BigQuery Optimization -->
+				<section>
+					<section>
+						<h2>Nested & Repeated Fields</h2>
+						<p>Wyjście poza relacyjny model płaski:</p>
+						<ul>
+							<li><strong>STRUCT:</strong> Grupowanie powiązanych pól (np. adres).</li>
+							<li><strong>ARRAY:</strong> Przechowywanie list w jednym wierszu (np. przedmioty w zamówieniu).</li>
+						</ul>
+						<p class="fragment">Zaleta: Brak kosztownych JOINów przy odczycie dużych wolumenów danych.</p>
+					</section>
+					<section>
+						<h2>Modelowanie Nested</h2>
+						<pre><code class="sql" data-trim>
+							-- Przykład logiki w BigQuery
+							SELECT 
+							  order_id,
+							  ARRAY_AGG(
+							    STRUCT(product_name, price, quantity)
+							  ) as line_items
+							FROM raw_orders
+							GROUP BY 1
+						</code></pre>
+					</section>
+				</section>
+
+				<!-- Slajd 5: Star Schema w dbt -->
+				<section>
+					<h2>Model Faktów i Wymiarów</h2>
+					<p>Klasyczne podejście analityczne:</p>
+					<div style="display: flex; justify-content: space-between; font-size: 0.7em;">
+						<div style="border: 1px solid #00f2ff; padding: 10px; width: 45%;">
+							<h4>Wymiary (Dimensions)</h4>
+							<ul>
+								<li><code>dim_customers</code></li>
+								<li><code>dim_books</code></li>
+								<li><code>dim_authors</code></li>
+								<li><code>dim_publishers</code></li>
+							</ul>
+						</div>
+						<div style="border: 1px solid #ff694b; padding: 10px; width: 45%;">
+							<h4>Fakty (Facts)</h4>
+							<ul>
+								<li><code>fct_transactions</code></li>
+								<li><code>metrics_daily_sales</code></li>
+							</ul>
+						</div>
+					</div>
+				</section>
+
+				<!-- Slajd 6: Warstwa Raportowa -->
+				<section>
+					<h2>Od Danych do Wniosków</h2>
+					<p>Finalne modele w warstwie <code>semantic</code>:</p>
+					<ul>
+						<li><strong>Monthly Book Ranking:</strong> Trendy popularności tytułów.</li>
+						<li><strong>Sales per Publisher:</strong> Wydajność dostawców.</li>
+						<li><strong>Top 10 Authors:</strong> Identyfikacja kluczowych twórców.</li>
+					</ul>
+					<p class="fragment">Te modele są gotowym źródłem dla narzędzi BI (Tableau, Looker, PowerBI).</p>
+				</section>
+
+				<!-- Slajd 7: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div style="text-align: center;">
+							<img src="https://raw.githubusercontent.com/dbt-labs/dbt-learn/master/static/img/logo-dbt.png" width="100" style="background: white; padding: 10px; border-radius: 10px;">
+							<p>Orkiestracja & Transformacja</p>
+						</div>
+						<div style="text-align: center;">
+							<img src="https://www.gstatic.com/images/branding/product/2x/bigquery_64dp.png" width="100">
+							<p>Compute & Storage</p>
+						</div>
+					</div>
+					<p>Kluczowe funkcje SQL: <strong>CTEs</strong>, <strong>Window Functions</strong>, <strong>UNNEST</strong>, <strong>ARRAY_AGG</strong>.</p>
+				</section>
+
+				<!-- Slajd 8: Przebieg Warsztatu -->
+				<section>
+					<h2>Przebieg Laboratorium</h2>
+					<ol style="font-size: 0.7em;">
+						<li>Oczyszczenie i standaryzacja danych w warstwie Staging.</li>
+						<li>Budowa szerokiej tabeli <code>prep_transactions_enriched</code>.</li>
+						<li>Implementacja modelu <code>nested_transactions</code> przy użyciu <code>STRUCT</code> i <code>ARRAY</code>.</li>
+						<li>Rozbicie danych na klasyczny model Star Schema (4 wymiary, 1 fakt).</li>
+						<li>Stworzenie zagregowanych metryk sprzedaży.</li>
+						<li>Budowa raportów końcowych w warstwie Semantic.</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Czego nauczysz się w Lab 06?</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Data Architect Skills:</strong> Projektowanie wielowarstwowych systemów analitycznych.</li>
+						<li class="fragment"><strong>BigQuery Native Modeling:</strong> Wykorzystanie specyficznych cech BQ dla wydajności i kosztów.</li>
+						<li class="fragment"><strong>Advanced SQL:</strong> Praca z danymi zagnieżdżonymi i zaawansowaną analityką.</li>
+						<li class="fragment"><strong>Modeling Trade-offs:</strong> Kiedy stosować Star Schema, a kiedy Nested Tables.</li>
+						<li class="fragment"><strong>Business-Driven Design:</strong> Tworzenie warstw semantycznych odpowiadających na realne pytania biznesowe.</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>

@@ -782,7 +782,7 @@ gsutil cp /tmp/spdb-bckp-* gs://<nazwa-twojego-bucketu>/bckp/
         ```shell
         dag_id                                  | fileloc                                          | owners  | is_paused
         ========================================+==================================================+=========+==========
-        dbt_core_project_processor_parametrized | /config/airflow/dags/dbt_dag_run.py              | airflow | True     
+        dbt_dag_run                             | /config/airflow/dags/dbt_run_dag.py              | airflow | True     
         server_health_check_empty               | /config/airflow/dags/server_health_check_bash.py | airflow | False    
         ```
  
@@ -919,7 +919,7 @@ from airflow.utils.dates import days_ago
 # Ścieżka do skryptu generatora
 GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/generator.py')
 # Ścieżka do folderu wyjściowego dla dbt_bookstore_lab
-DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
+DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/config/workspace/dbt_bookstore_lab')
 # Domyślna ścieżka do projektu dbt (używana przez dbt_dag_run)
 DEFAULT_DBT_PROJECT_DIR = os.getenv('DBT_PROJECT_DIR', '/config/workspace/dbt_bookstore_lab/dbt_project')
 
@@ -1184,8 +1184,6 @@ Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i T
 
 > PYTANIE: Jakie są zalety przechowywania surowych danych (raw data) w GCS w formacie Hive, zamiast ładowania ich bezpośrednio do bazy DuckDB przy każdym uruchomieniu?
 
-## Lab 05
-
 ## Lab 05: BigQuery & External Tables
 
 W tym laboratorium nauczymy się, jak wykorzystać BigQuery do analizy danych składowanych w GCS (Data Lake) bez konieczności ich fizycznego importowania. Wykorzystamy **External Tables** oraz automatyczne wykrywanie partycji Hive.
@@ -1368,9 +1366,20 @@ models:
     semantic:
       +schema: semantic
     keystore:
-      +schema: security`
+      +schema: security
+
+*Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw. W tym celu utwórz plik `macros/generate_schema_name.sql` i wklej poniższy kod:*
+
+```sql
+{% macro generate_schema_name(custom_schema_name, node) -%}
+    {%- set default_schema = target.schema -%}
+    {%- if custom_schema_name is none -%}
+        {{ default_schema }}
+    {%- else -%}
+        {{ custom_schema_name | trim }}
+    {%- endif -%}
+{%- endmacro %}
 ```
-*Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw.*
 
 ### Krok 7: Definicja źródeł (Sources)
 
@@ -1405,7 +1414,7 @@ W przypadku Crypto-shreddingu musimy zagwarantować, że raz wygenerowany klucz 
 SELECT
     customer_id,
     -- Generujemy profesjonalny zestaw kluczy AEAD
-    KEYS.NEW_KEYSET('AEAD_AES_GCM_256') as encryption_key
+    TO_HEX(KEYS.NEW_KEYSET('AEAD_AES_GCM_256')) as encryption_key
 FROM {{ source('gcs_raw', 'ext_customers') }}
 
 {% if is_incremental() %}
@@ -1623,29 +1632,63 @@ Zamiast "cicho" gubić dane lub pozwalać na pojawienie się `NULL`, zastosujemy
 -- models/staging/stg_books.sql
 WITH source AS (
     SELECT
-        index as book_id,
-        -- ... pozostałe kolumny ...
+        CAST(index AS INT64) as book_id,
+        Publishing_Year as publishing_year,
+        Book_Name as title,
+        Author as author,
+        language_code,
+        Author_Rating as author_rating,
+        Book_average_rating as book_average_rating,
+        Book_ratings_count as book_ratings_count,
+        genre as category,
+        gross_sales,
+        publisher_revenue,
+        sale_price as price,
+        sales_rank,
+        Publisher_ as publisher,
+        units_sold
     FROM {{ source('gcs_raw', 'ext_books') }}
 ),
 
 dummy_record AS (
     SELECT
         -1 as book_id,
+        NULL as publishing_year,
         'Nieznana Książka (Błąd danych)' as title,
         'System' as author,
-        -- ... pozostałe kolumny wypełnione wartościami domyślnymi ...
+        'PL' as language_code,
+        '0' as author_rating,
+        0.0 as book_average_rating,
+        0 as book_ratings_count,
+        'Unknown' as category,
+        0.0 as gross_sales,
+        0.0 as publisher_revenue,
+        0.0 as price,
+        99999 as sales_rank,
+        'System' as publisher,
+        0 as units_sold
 )
 
-SELECT * FROM source UNION ALL SELECT * FROM dummy_record
+SELECT * FROM source
+UNION ALL
+SELECT * FROM dummy_record
 ```
 
 **Model `prep_transactions_enriched.sql` (z użyciem COALESCE):**
 ```sql
 -- models/prep/prep_transactions_enriched.sql
--- ... (CTE: transactions, customers, books) ...
+WITH transactions AS (
+    SELECT * FROM {{ source('gcs_raw', 'ext_transactions') }}
+),
 
--- Krok 1: Rozpłaszczamy pozycje i łączymy z informacjami o książkach
--- Używamy COALESCE i SAFE_CAST, aby zamienić błędy na nasz klucz techniczny -1
+customers AS (
+    SELECT * FROM {{ ref('stg_customers') }}
+),
+
+books AS (
+    SELECT * FROM {{ ref('stg_books') }}
+),
+
 flattened_items AS (
     SELECT
         t.transaction_id,
@@ -1653,13 +1696,38 @@ flattened_items AS (
             COALESCE(SAFE_CAST(i.book_id AS INT64), -1) as book_id,
             b.title as book_title,
             b.author as book_author,
-            -- ... pozostałe kolumny ...
+            b.publisher as book_publisher,
+            b.category as book_category,
+            i.unit_price,
+            i.quantity
         ) as item_enriched
     FROM transactions t
     CROSS JOIN UNNEST(t.items) i
     LEFT JOIN books b ON COALESCE(SAFE_CAST(i.book_id AS INT64), -1) = b.book_id
 ),
--- ... (Krok 2: ARRAY_AGG, Krok 3: FINAL JOIN) ...
+
+enriched_items_array AS (
+    SELECT
+        transaction_id,
+        ARRAY_AGG(item_enriched) as items
+    FROM flattened_items
+    GROUP BY 1
+)
+
+SELECT
+    t.transaction_id,
+    t.customer_id,
+    t.transaction_date,
+    t.cash_register,
+    t.cashier,
+    c.first_name,
+    c.last_name,
+    c.email,
+    c.registration_date,
+    e.items
+FROM transactions t
+JOIN customers c ON t.customer_id = c.customer_id
+JOIN enriched_items_array e ON t.transaction_id = e.transaction_id
 ```
 
 ### Krok 4: Handling Nested Data – UNNEST vs Nested
@@ -1671,7 +1739,11 @@ Używamy `UNNEST(items)`, aby "rozpłaszczyć" transakcje. Zauważ, że pola tak
 
 ```sql
 -- models/dwh/core/flat_transactions.sql
-{{ config(materialized='table') }}
+{{
+    config(
+        materialized='table' 
+    )
+}}
 
 SELECT
     t.transaction_id,
@@ -1686,6 +1758,9 @@ SELECT
     item.book_id,
     item.book_title,
     item.book_author,
+    ABS(FARM_FINGERPRINT(item.book_author)) as author_id,
+    item.book_publisher,
+    ABS(FARM_FINGERPRINT(item.book_publisher)) as publisher_id,
     item.book_category,
     item.unit_price,
     item.quantity,

@@ -12,7 +12,7 @@ import duckdb
 
 # --- Default Configuration ---
 GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/generator.py')
-DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
+DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/config/workspace/dbt_bookstore_lab')
 
 templated_date_nodash = "{{ ds_nodash }}"
 templated_date_dash = "{{ ds }}"

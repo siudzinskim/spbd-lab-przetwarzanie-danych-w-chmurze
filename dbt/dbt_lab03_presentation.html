@@ -1,0 +1,153 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 03 - dbt & Airflow Orchestration</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 03</h1>
+					<h3>Orkiestracja dbt za pomocą Apache Airflow</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Wstęp -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Automatyzacja procesów ELT</li>
+						<li>Uruchomienie Apache Airflow w trybie Standalone</li>
+						<li>Integracja Airflow z dbt za pomocą <code>BashOperator</code></li>
+						<li>Budowa parametryzowanego potoku danych</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div>
+							<h4>Orkiestracja</h4>
+							<p style="color: #e2711d;">Apache Airflow</p>
+						</div>
+						<div>
+							<h4>Transformacja</h4>
+							<p style="color: #ff694b;">dbt (core)</p>
+						</div>
+						<div>
+							<h4>Baza Danych</h4>
+							<p style="color: #fff000;">DuckDB</p>
+						</div>
+					</div>
+					<p class="fragment">Wykorzystujemy <strong>SQLite</strong> jako bazę metadanych Airflow dla uproszczenia konfiguracji.</p>
+				</section>
+
+				<!-- Slajd 4: Przebieg Laboratorium - Krok 1 -->
+				<section>
+					<section>
+						<h2>Przebieg: Setup Airflow</h2>
+						<p>Inicjalizacja środowiska skryptem <code>./init.sh</code>:</p>
+						<pre><code class="bash" data-trim>
+							export AIRFLOW_HOME=/config/workspace/airflow
+							./init.sh
+							airflow standalone
+						</code></pre>
+						<p><small>Skrypt dba o migrację bazy danych, tworzenie użytkownika admin i konfigurację ścieżek.</small></p>
+					</section>
+					<section>
+						<h2>Dostęp do UI</h2>
+						<ul>
+							<li>Host: <code>http://[PUBLIC_IP]:8080</code></li>
+							<li>Logowanie: <code>admin</code> + hasło wygenerowane przy starcie</li>
+							<li>Weryfikacja: DAG <code>server_health_check_empty</code></li>
+						</ul>
+					</section>
+				</section>
+
+				<!-- Slajd 5: Serce Laboratorium - Parametryzowany DAG -->
+				<section>
+					<h2>Potęga Parametryzacji</h2>
+					<p>Tworzymy <code>dbt_run_dag.py</code>, który obsługuje:</p>
+					<ul>
+						<li>Zmienne środowiskowe (ścieżki do projektu i profili)</li>
+						<li>Konfigurację runtime przez zmienne
+						<li>Szablony <strong>Jinja</strong> do dynamicznego budowania komend bash</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 6: Pipeline dbt -->
+				<section>
+					<h2>Struktura Pipeline'u</h2>
+					<p>Zdefiniowany przepływ zadań:</p>
+					<div style="background: #333; padding: 20px; border-radius: 10px; font-family: monospace;">
+						seed >> run >> test >> docs
+					</div>
+					<ol style="margin-top: 20px;">
+						<li class="fragment"><strong>Seed:</strong> Załadowanie danych statycznych</li>
+						<li class="fragment"><strong>Run:</strong> Wykonanie transformacji SQL</li>
+						<li class="fragment"><strong>Test:</strong> Weryfikacja jakości danych</li>
+						<li class="fragment"><strong>Docs:</strong> Generowanie dokumentacji</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 7: Wykorzystane Techniki -->
+				<section>
+					<h2>Kluczowe Techniki</h2>
+					<ul>
+						<li><strong>Idempotentność:</strong> Każde uruchomienie daje ten sam wynik (CREATE OR REPLACE).</li>
+						<li><strong>Inversion of Control:</strong> Airflow decyduje KIEDY, dbt decyduje JAK.</li>
+						<li><strong>Symlink Management:</strong> Mapowanie folderów workspace do środowiska Airflow.</li>
+						<li><strong>Log Analysis:</strong> Debugowanie procesów dbt bezpośrednio w logach Airflow.</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 8: Rozwiązywanie problemów -->
+				<section>
+					<h2>Typowe Wyzwania</h2>
+					<ul>
+						<li>Błędy importu DAG-ów (<code>list-import-errors</code>)</li>
+						<li>Problemy ze ścieżkami względnymi i absolutnymi </code></li>
+						<li>Konieczność odświeżania (Clear task) po zmianach w kodzie</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Czego nauczysz się w Lab 03?</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Setup Airflow:</strong> Podstawowa konfiguracja środowiska Standalone z bazą SQLite.</li>
+						<li class="fragment"><strong>BashOperator:</strong> Automatyzacja narzędzi CLI (dbt).</li>
+						<li class="fragment"><strong>Jinja Templating:</strong> Budowa dynamicznych ścieżek i parametrów w DAG-ach.</li>
+						<li class="fragment"><strong>Zarządzanie Stanem:</strong> Obsługa parametrów <code>dag_run.conf</code> i zmiennych środowiskowych.</li>
+						<li class="fragment"><strong>Struktura Projektu:</strong> Wykorzystanie symlinków do łączenia workspace'u z systemem Airflow.</li>
+						<li class="fragment"><strong>Log & Task Management:</strong> Analiza błędów dbt i sterowanie powtórzeniami (Clear Task).</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>
