@@ -840,7 +840,10 @@ Po poprawnym uruchomieniu DAGa `dbt_dag_run`, warto przeanalizować, co właści
 
 ## Lab 04
 
-W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony. 
+> **UWAGA!** Do poprawnego działania tego laboratorium absolutnie konieczne jest wykonanie części Lab 01 polegającej na pobraniu danych o książkach (uruchomienie polecenia `python get_books.py` w folderze `dbt/lab-dbt01`). Jeśli DAG `daily_data_generator` będzie zgłaszał błędy (szczególnie w zadaniu `check_books_file_exists`), upewnij się, że wykonałeś kroki opisane w instrukcji do Lab 01 (punkty 1-2).
+
+W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony.
+ 
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
 Można założyć, że symulacja imituje działanie pobierania danych z API systemu zawierającego nowych użytkowników i ich transakcje.
 
@@ -944,6 +947,7 @@ generate_data_command = (
     f"--transactions-offset {templated_offset} " # Używamy dynamicznego offsetu
     f"--customers-output {templated_customers_output_file} "
     f"--transactions-output {templated_transactions_output_file} "
+    f"--books-input {os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), 'books.csv')} "
     f"--start-date {templated_date_dash} "
     f"--end-date {templated_date_dash}"
 )
@@ -961,6 +965,12 @@ with DAG(
         'owner': 'airflow',
     },
 ) as dag:
+
+    check_books_file_exists_task = BashOperator(
+        task_id='check_books_file_exists',
+        bash_command=f"test -f {os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), 'books.csv')} || (echo 'Error: books.csv not found!' && exit 1)",
+        doc_md="Verifies that the books.csv file exists before attempting to generate transaction data.",
+    )
 
     generate_daily_data_task = BashOperator(
         task_id='generate_daily_data',
@@ -986,12 +996,11 @@ W logach powinny się znajdować wpsy podobne do:
 
 ```
 [2025-05-20, 21:55:32 UTC] {subprocess.py:86} INFO - Output:
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Loading books from books.csv...
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: Book file not found at books.csv. Proceeding without specific book details in transactions.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Loading books from /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/books.csv...
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Successfully loaded 211 books.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating 100 customers to /config/workspace/dbt_bookstore_lab/customers-20250519.csv...
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Customer data saved successfully to '/config/workspace/dbt_bookstore_lab/customers-20250519.csv'.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating transactions from 2025-05-19 to 2025-05-19 into /config/workspace/dbt_bookstore_lab/transactions-20250519.json...
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: No book data loaded. Transactions will not have valid 'book_id' values.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Transaction data saved successfully to '/config/workspace/dbt_bookstore_lab/transactions-20250519.json'. Total transactions generated: 24
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - 
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Data generation process finished.
@@ -1019,7 +1028,7 @@ Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upew
         ),
     )
 
-    generate_daily_data_task >> verify_files_exist_task
+    check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task
 ```
 
 ### Przesyłanie danych do Google Cloud Storage (GCS)
@@ -1063,7 +1072,7 @@ Do aktualnego DAGa dodaj następujące fragmenty:
     ```
 - w sekcji zależności:
     ```python
-    verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
+    check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
     ```
 
 ### Ustawienie zmiennych
@@ -1690,7 +1699,7 @@ UNNEST(items) as item
 W warstwie `dwh/core` tworzymy ostateczne tabele, które będą służyć do analiz.
 
 1. **`fct_transactions`**: Tabela faktów, oparta na modelu płaskim. Zawiera najbardziej szczegółowe dane o sprzedaży.
-2. **`dim_customers` i `dim_books`**: Tabele wymiarów, zawierające atrybuty opisowe.
+2. **`dim_customers`, `dim_books`, `dim_authors` i `dim_publishers`**: Tabele wymiarów, zawierające atrybuty opisowe.
 3. **`metrics_daily_sales`**: Model agregujący, który oblicza dzienne statystyki (sprzedaż, liczba klientów, przychód).
 4. **`nested_transactions` / `flat_transactions`**: Zmaterializowane modele główne.
 

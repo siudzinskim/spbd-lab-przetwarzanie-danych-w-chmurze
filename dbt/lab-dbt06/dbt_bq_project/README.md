@@ -16,6 +16,8 @@ W tym laboratorium budujemy kompletną strukturę Data Warehouse (DWH) przy uży
 - **Core (DWH)**:
   - `dim_customers`: Wymiar klienta.
   - `dim_books`: Wymiar książki.
+  - `dim_authors`: Wymiar autora.
+  - `dim_publishers`: Wymiar wydawnictwa.
   - `fct_transactions`: Fakty sprzedażowe.
   - `metrics_daily_sales`: Agregacje dzienne.
   - `nested_transactions` / `flat_transactions`: Zmaterializowane widoki główne.

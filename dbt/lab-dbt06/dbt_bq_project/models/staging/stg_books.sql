@@ -1,7 +1,7 @@
 -- models/staging/stg_books.sql
 WITH source AS (
     SELECT
-        index as book_id,
+        CAST(index AS INT64) as book_id,
         Publishing_Year as publishing_year,
         Book_Name as title,
         Author as author,

@@ -17,6 +17,7 @@ flattened_items AS (
             COALESCE(SAFE_CAST(i.book_id AS INT64), -1) as book_id,
             b.title as book_title,
             b.author as book_author,
+            b.publisher as book_publisher,
             b.category as book_category,
             i.unit_price,
             i.quantity

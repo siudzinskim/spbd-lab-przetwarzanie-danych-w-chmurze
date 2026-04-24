@@ -20,6 +20,7 @@ templated_date_dash = "{{ ds }}"
 templated_customers_output_file = f"{DBT_BOOKSTORE_LAB_DIR}/customers-{templated_date_nodash}.csv"
 templated_transactions_output_file = f"{DBT_BOOKSTORE_LAB_DIR}/transactions-{templated_date_nodash}.json"
 templated_offset = "{{ ti.execution_date.strftime('%Y%m%d%H%M%S') }}"
+books_input_path = os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), "books.csv")
 
 generate_data_command = (
     f"python {GENERATOR_SCRIPT_PATH} "
@@ -28,6 +29,7 @@ generate_data_command = (
     f"--transactions-offset {templated_offset} "
     f"--customers-output {templated_customers_output_file} "
     f"--transactions-output {templated_transactions_output_file} "
+    f"--books-input {books_input_path} "
     f"--start-date {templated_date_dash} "
     f"--end-date {templated_date_dash}"
 )
@@ -46,6 +48,12 @@ with DAG(
     generate_daily_data_task = BashOperator(
         task_id='generate_daily_data',
         bash_command=generate_data_command,
+    )
+
+    check_books_file_exists_task = BashOperator(
+        task_id='check_books_file_exists',
+        bash_command=f"test -f {books_input_path} || (echo 'Error: {books_input_path} not found!' && exit 1)",
+        doc_md="Verifies that the books.csv file exists before attempting to generate transaction data.",
     )
 
     verify_files_exist_task = BashOperator(
@@ -130,8 +138,8 @@ with DAG(
 
         export_task = read_gcs_hive_and_export(ds="{{ ds }}", ds_nodash="{{ ds_nodash }}")
 
-        generate_daily_data_task >> verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task] >> export_task
+        check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task] >> export_task
     
     except Exception:
         # Fallback if variable is not yet defined to avoid breaking the parser completely
-        generate_daily_data_task >> verify_files_exist_task
+        check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task
