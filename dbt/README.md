@@ -1058,7 +1058,7 @@ Do aktualnego DAGa dodaj następujące fragmenty:
     upload_customers_to_gcs_command = f"gsutil cp {templated_customers_output_file} {gcs_customers_target_path}"
     upload_transactions_to_gcs_command = f"gsutil cp {templated_transactions_output_file} {gcs_transactions_target_path}"
     ```
-- wewnątrz definicji DAG:
+- wewnątrz definicji DAG (zamiast BashOperator):
     ```python
     upload_customers_to_gcs_task = BashOperator(
         task_id='upload_customers_to_gcs',
