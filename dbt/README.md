@@ -1058,7 +1058,7 @@ Do aktualnego DAGa dodaj następujące fragmenty:
     upload_customers_to_gcs_command = f"gsutil cp {templated_customers_output_file} {gcs_customers_target_path}"
     upload_transactions_to_gcs_command = f"gsutil cp {templated_transactions_output_file} {gcs_transactions_target_path}"
     ```
-- wewnątrz definicji DAG (zamiast BashOperator):
+- wewnątrz definicji DAG:
     ```python
     upload_customers_to_gcs_task = BashOperator(
         task_id='upload_customers_to_gcs',
@@ -1264,7 +1264,7 @@ Dzięki `hive_partition_uri_prefix`, BigQuery automatycznie dodał kolumnę `dat
    FROM `bookstore_src.ext_transactions` 
    WHERE date = CURRENT_DATE();
    ```
-   *W prawym górnym rogu edytora SQL zobaczysz informację o rozmiarze skanowanych danych. Dzięki partycjonowaniu Hive, BigQuery pobierze tylko te pliki, które znajdują się w folderze odpowiadającym danej dacie.*
+   *Po wykonaniu zadania otwórz zakładkę `Job information` i odczytaj wartość `Bytes processed`. Ponieważ ładowaliśmy dane z datą wsteczną wartość powinna wynosić 0. Spróbuj też zmodyfikować filtry, np. `WHERE date = CURRENT_DATE() - 1` oraz `WHERE date > CURRENT_DATE() - 3` oraz całkowicie usunąć filtry i porównaj wartości. Tak właśnie działa partition pruning* 
 
 ### Krok 3: Udowodnienie niemodyfikowalności (Immutable)
 
@@ -1367,18 +1367,6 @@ models:
       +schema: semantic
     keystore:
       +schema: security
-
-*Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw. W tym celu utwórz plik `macros/generate_schema_name.sql` i wklej poniższy kod:*
-
-```sql
-{% macro generate_schema_name(custom_schema_name, node) -%}
-    {%- set default_schema = target.schema -%}
-    {%- if custom_schema_name is none -%}
-        {{ default_schema }}
-    {%- else -%}
-        {{ custom_schema_name | trim }}
-    {%- endif -%}
-{%- endmacro %}
 ```
 
 ### Krok 7: Definicja źródeł (Sources)
@@ -1448,6 +1436,9 @@ Tu budujemy czyste wymiary gotowe do analizy. Modele w tej warstwie materializuj
 
 SELECT * FROM {{ ref('stg_customers') }}
 ```
+
+> UWAGA! 
+> *Warto zwrótić uwagę, że w realnych warunkach często będziemy korzystali z materializacji inkrementalnej, aby zoptymalizować wydajność. Korzystanie ze standardowej materializacji będzie za każdym razem materializowało wszystkie rekordy, co w dużych bazach danych jest wysoce nieefektywne. Inkrementalne ładowanie może wymagać stosowania znaczników fingerprint lub watermarks. Jednak ze wględu na ograniczony czas zajęć nie będziemy prezentować tych technik w tym laboratorium.*
 
 ### Krok 9: Crypto-shredding w praktyce – Laboratorium RODO
 
@@ -1525,7 +1516,7 @@ W tym laboratorium rozbudujemy naszą hurtownię danych o brakujące elementy, w
 
 ### Krok 0: Programowy eksport danych (DuckDB -> Parquet przez HMAC)
 
-Zamiast polegać na domyślnej autentykacji, nauczymy się korzystać z kluczy **HMAC**, które pozwalają DuckDB komunikować się z GCS za pomocą protokołu kompatybilnego z S3. Wyeksportujemy dane do formatu **Parquet**, który jest zoptymalizowany pod kątem wydajności i przechowywania metadanych.
+DuckDB nie potrafi polegać na domyślnej autentykacji z `adc.json`, więc nauczymy się korzystać z kluczy **HMAC**, które pozwalają DuckDB komunikować się z GCS za pomocą protokołu kompatybilnego z S3. Wyeksportujemy dane do formatu **Parquet**, który jest zoptymalizowany pod kątem wydajności i przechowywania metadanych.
 
 1. **Wygeneruj klucze HMAC w konsoli Google Cloud:**
    - Przejdź do [Cloud Storage -> Settings](https://console.cloud.google.com/storage/settings).
@@ -1615,9 +1606,14 @@ SELECT
 FROM {{ source('gcs_raw', 'ext_books') }}
 ```
 
-Przejdź do folderu laboratorium 06:
+Przejdź do folderu laboratorium 06 i uruchom model stg_books:
 ```shell
 cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+dbt run -s stg_books
+```
+Następnie w konsoli bigquery odnajdź tabelę stg_books i odpowiedz na pytanie, czy jest ona materializowana jako widok, czy tablela? Aby odczytać dane wykonaj zapytanie:
+```sql
+SELECT * FROM `spdb-2026.bookstore_stg.stg_books` 
 ```
 
 ### Krok 3: Warstwa Prepared (PREP) i Spójność Danych (Data Integrity)
@@ -1806,6 +1802,20 @@ ORDER BY 1 DESC
    ```
 4. Sprawdź w BigQuery, czy tabele pojawiły się w odpowiednich datasetach (`bookstore_stg`, `bookstore_dwh`, `bookstore_security`).
 
+## Krok 7: Automatyzacja 
+
+Korzystając z DAGa utworzonege w ramach Lab 03 możemy teraz uruchomić ładowanie danych do hurtowni wykorzystując utworzony właśnie projekt dbt.
+Moglibyśmy utworzyć nowy DAG lub zmodyfikowć istniejący, tak aby wskazywał odpowiednie ścieżki, jednak DAG umożliwia wprowadzenie parametrów podczas uruchamiania.
+W tym celu kliknij `Trigger DAG` a w następnym ekranie przed wciśnięciem przycisku `Trigger` ustaw parametry:
+* **default_project_dir**: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+* **default_profiles_dir**: /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/ 
+
+Aby wyświetlić dokumentację uruchom następujące komendy:
+```shell
+  export DBT_PROFILES_DIR=/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/
+  cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+  dbt docs serve --port 8000 --host 0.0.0.0
+```
 ### Podsumowanie Lab 06
 
 W tym laboratorium nauczyliście się:
