@@ -1,0 +1,148 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 05 - Cloud DWH & Field Level Encryption</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 05</h1>
+					<h3>Cloud Data Warehouse & Field Level Encryption</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Wstęp -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Migracja z lokalnego DuckDB do <strong>Google BigQuery</strong></li>
+						<li>Integracja jeziora danych (GCS) z hurtownią (BQ)</li>
+						<li>Implementacja zaawansowanego <strong>bezpieczeństwa PII</strong></li>
+						<li>Zarządzanie kluczami szyfrującymi w dbt</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div>
+							<h4>Hurtownia</h4>
+							<p style="color: #4285F4;">Google BigQuery</p>
+						</div>
+						<div>
+							<h4>Kryptografia</h4>
+							<p style="color: #ff694b;">AEAD Encryption</p>
+						</div>
+						<div>
+							<h4>Modelowanie</h4>
+							<p style="color: #00f2ff;">dbt Cloud / Core</p>
+						</div>
+					</div>
+					<p class="fragment">Używamy <strong>External Tables</strong>, aby BigQuery mógł czytać dane bezpośrednio z GCS bez ich fizycznego kopiowania.</p>
+				</section>
+
+				<!-- Slajd 4: Architektura External Tables -->
+				<section>
+					<h2>GCS jako źródło dla BQ</h2>
+					<p>Definiujemy źródła w <code>sources.yml</code>:</p>
+					<pre><code class="yaml" data-trim>
+						sources:
+						  - name: gcs_raw
+						    schema: bookstore_src
+						    tables:
+						      - name: ext_customers
+						      - name: ext_transactions
+					</code></pre>
+					<p><small>Umożliwia to query'owanie plików CSV/JSON bezpośrednio w SQL.</small></p>
+				</section>
+
+				<!-- Slajd 5: Wzorzec Keystore -->
+				<section>
+					<h2>Zarządzanie Kluczami</h2>
+					<p>Tworzymy inkrementalny model <code>user_keys.sql</code>:</p>
+					<ul>
+						<li>Generowanie unikalnych <strong>Keysetów</strong> dla każdego użytkownika</li>
+						<li>Przechowywanie kluczy w dedykowanej warstwie Keystore</li>
+						<li>Zapewnienie niezmienności klucza raz wygenerowanego</li>
+					</ul>
+					<pre><code class="sql" data-trim>
+						KEYS.NEW_KEYSET('AEAD_AES_GCM_256')
+					</code></pre>
+				</section>
+
+				<!-- Slajd 6: Field Level Encryption (FLE) -->
+				<section>
+					<h2>Szyfrowanie w Stagingu</h2>
+					<p>Zamiast jawnych danych, w hurtowni ląduje szyfrogram:</p>
+					<pre><code class="sql" data-trim>
+						AEAD.ENCRYPT(
+						  SAFE.FROM_HEX(k.encryption_key), 
+						  first_name, ''
+						)
+					</code></pre>
+					<p class="fragment">Efekt: Nawet administrator hurtowni nie widzi danych PII bez dostępu do kluczy.</p>
+				</section>
+
+				<!-- Slajd 7: Wykorzystane Techniki -->
+				<section>
+					<h2>Kluczowe Techniki dbt</h2>
+					<ul>
+						<li><strong>Incremental Materialization:</strong> Do bezpiecznego dopisywania nowych kluczy.</li>
+						<li><strong>REPLACE operator:</strong> Eleganckie nadpisywanie wielu kolumn w jednym SELECT.</li>
+						<li><strong>Complex Joins:</strong> Łączenie danych surowych z warstwą kluczy w locie.</li>
+						<li><strong>Project Profiles:</strong> Konfiguracja uwierzytelniania OAuth do GCP.</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 8: Przebieg Warsztatu -->
+				<section>
+					<h2>Przebieg Laboratorium</h2>
+					<ol style="font-size: 0.8em;">
+						<li>Setup projektu dbt w BigQuery.</li>
+						<li>Tworzenie datasetów <code>bookstore_*</code>.</li>
+						<li>Wdrożenie modelu <code>user_keys</code> do obsługi crypto-shredding (inkrementalnie).</li>
+						<li>Refaktoryzacja warstwy staging z użyciem AEAD.</li>
+						<li>Budowa modelu <code>dim_customers</code> na zaszyfrowanych danych.</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Czego nauczysz się w Lab 05?</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Enterprise DWH:</strong> Praca z BigQuery jako docelową platformą danych.</li>
+						<li class="fragment"><strong>Data Security:</strong> Wdrażanie standardu "Security by Design" w SQL.</li>
+						<li class="fragment"><strong>Kryptografia w SQL:</strong> Praktyczne użycie funkcji AEAD i Keysetów.</li>
+						<li class="fragment"><strong>Hybrid Architecture:</strong> Łączenie External Tables (GCS) z natywnymi tabelami BQ.</li>
+						<li class="fragment"><strong>Privacy Engineering:</strong> Ochrona danych wrażliwych (PII) przed niepowołanym dostępem.</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>

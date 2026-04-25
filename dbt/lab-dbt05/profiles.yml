@@ -1,0 +1,11 @@
+dbt_bq_project:
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: <TWOJ_PROJEKT_GCP>
+      dataset: bookstore
+      threads: 4
+      location: EU
+      priority: interactive
+  target: dev

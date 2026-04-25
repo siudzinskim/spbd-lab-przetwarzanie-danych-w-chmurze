@@ -782,7 +782,7 @@ gsutil cp /tmp/spdb-bckp-* gs://<nazwa-twojego-bucketu>/bckp/
         ```shell
         dag_id                                  | fileloc                                          | owners  | is_paused
         ========================================+==================================================+=========+==========
-        dbt_core_project_processor_parametrized | /config/airflow/dags/dbt_dag_run.py              | airflow | True     
+        dbt_dag_run                             | /config/airflow/dags/dbt_run_dag.py              | airflow | True     
         server_health_check_empty               | /config/airflow/dags/server_health_check_bash.py | airflow | False    
         ```
  
@@ -840,7 +840,10 @@ Po poprawnym uruchomieniu DAGa `dbt_dag_run`, warto przeanalizować, co właści
 
 ## Lab 04
 
-W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony. 
+> **UWAGA!** Do poprawnego działania tego laboratorium absolutnie konieczne jest wykonanie części Lab 01 polegającej na pobraniu danych o książkach (uruchomienie polecenia `python get_books.py` w folderze `dbt/lab-dbt01`). Jeśli DAG `daily_data_generator` będzie zgłaszał błędy (szczególnie w zadaniu `check_books_file_exists`), upewnij się, że wykonałeś kroki opisane w instrukcji do Lab 01 (punkty 1-2).
+
+W tym laboratorium utworzymy kolejny DAG, który będzie generował transakcje dla danego dnia, w którym DAG został uruchomiony.
+ 
 W tym celu utworzymy kolejny DAG, który będzie uruchamiał skrypt generujący dodatkowe dane z dnia, w którym skrypt został uruchomiony.
 Można założyć, że symulacja imituje działanie pobierania danych z API systemu zawierającego nowych użytkowników i ich transakcje.
 
@@ -916,7 +919,7 @@ from airflow.utils.dates import days_ago
 # Ścieżka do skryptu generatora
 GENERATOR_SCRIPT_PATH = os.getenv('GENERATOR_SCRIPT_PATH', '/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/generator.py')
 # Ścieżka do folderu wyjściowego dla dbt_bookstore_lab
-DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/tmp')
+DBT_BOOKSTORE_LAB_DIR = os.getenv('DBT_BOOKSTORE_LAB_DIR', '/config/workspace/dbt_bookstore_lab')
 # Domyślna ścieżka do projektu dbt (używana przez dbt_dag_run)
 DEFAULT_DBT_PROJECT_DIR = os.getenv('DBT_PROJECT_DIR', '/config/workspace/dbt_bookstore_lab/dbt_project')
 
@@ -944,6 +947,7 @@ generate_data_command = (
     f"--transactions-offset {templated_offset} " # Używamy dynamicznego offsetu
     f"--customers-output {templated_customers_output_file} "
     f"--transactions-output {templated_transactions_output_file} "
+    f"--books-input {os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), 'books.csv')} "
     f"--start-date {templated_date_dash} "
     f"--end-date {templated_date_dash}"
 )
@@ -954,12 +958,19 @@ with DAG(
     start_date=days_ago(1), # Uruchom od wczoraj
     schedule='@daily',      # Uruchamiaj codziennie o północy UTC
     catchup=False,          # Nie uruchamiaj dla przeszłych, nieuruchomionych interwałów
+    max_active_runs=1,
     tags=['data-generation', 'dbt', 'daily'],
-    description='Generates daily customer and transaction data, then runs the dbt workflow.',
+    description='Generates daily customer and transaction data and uploads to GCS.',
     default_args={
         'owner': 'airflow',
     },
 ) as dag:
+
+    check_books_file_exists_task = BashOperator(
+        task_id='check_books_file_exists',
+        bash_command=f"test -f {os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), 'books.csv')} || (echo 'Error: books.csv not found!' && exit 1)",
+        doc_md="Verifies that the books.csv file exists before attempting to generate transaction data.",
+    )
 
     generate_daily_data_task = BashOperator(
         task_id='generate_daily_data',
@@ -985,12 +996,11 @@ W logach powinny się znajdować wpsy podobne do:
 
 ```
 [2025-05-20, 21:55:32 UTC] {subprocess.py:86} INFO - Output:
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Loading books from books.csv...
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: Book file not found at books.csv. Proceeding without specific book details in transactions.
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Loading books from /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/books.csv...
+[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Successfully loaded 211 books.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating 100 customers to /config/workspace/dbt_bookstore_lab/customers-20250519.csv...
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Customer data saved successfully to '/config/workspace/dbt_bookstore_lab/customers-20250519.csv'.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Generating transactions from 2025-05-19 to 2025-05-19 into /config/workspace/dbt_bookstore_lab/transactions-20250519.json...
-[2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Warning: No book data loaded. Transactions will not have valid 'book_id' values.
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Transaction data saved successfully to '/config/workspace/dbt_bookstore_lab/transactions-20250519.json'. Total transactions generated: 24
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - 
 [2025-05-20, 21:55:34 UTC] {subprocess.py:93} INFO - Data generation process finished.
@@ -1018,94 +1028,60 @@ Jak widzisz, pliki zostały wygenerowane, ale załóżmy, że chcielibyśmy upew
         ),
     )
 
-    generate_daily_data_task >> verify_files_exist_task
+    check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task
 ```
 
 ### Przesyłanie danych do Google Cloud Storage (GCS)
 
 W inżynierii danych bardzo często wykorzystuje się koncepcję data lake, umieszczając dane w kontenerach takich jak GCS, 
-często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS. Zamiast 
-używać generycznego `BashOperator`, wykorzystamy dedykowany operator `LocalFilesystemToGCSOperator`, który jest częścią 
-pakietu dostawcy Google dla Airflow.
+często korzystając z partycjonowania Hive. Dodajmy taski, które przeniosą wygenerowane pliki do bucketu GCS, tak aby 
+znalazły się w ścieżce: 
+
+```
+gs://<nazwa_bucketu>/data-lake/raw-data/<rodzaj-pliku>/date=<data-generacji>/<nazwa-pliku>
+```
+
+gdzie `<rodzaj-pliku>` to odpowiednio `customers` lub `transactions`, `<data-generacji>` pobierana jest ze zmiennej `templated_date_dash`, a `<nazwa-bucketu>` jest pobierana ze zmiennej globalnej `GCS_bucket_name` zdefiniowanej w interfejsie Airflow.
 
 Do aktualnego DAGa dodaj następujące fragmenty:
 - w sekcji importów:
     ```python
     from airflow.models import Variable
-    from airflow.providers.google.cloud.transfers.local_to_gcs import LocalFilesystemToGCSOperator
     ```
 - w sekcji konfiguracji:
     ```python
     GCS_BUCKET_NAME = Variable.get("GCS_bucket_name")
     
-    # Ścieżki docelowe w formacie Hive
-    gcs_customers_target_path = f"data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
-    gcs_transactions_target_path = f"data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
+    gcs_customers_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date={templated_date_dash}/customers-{templated_date_nodash}.csv"
+    gcs_transactions_target_path = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/transactions/date={templated_date_dash}/transactions-{templated_date_nodash}.json"
+    
+    upload_customers_to_gcs_command = f"gsutil cp {templated_customers_output_file} {gcs_customers_target_path}"
+    upload_transactions_to_gcs_command = f"gsutil cp {templated_transactions_output_file} {gcs_transactions_target_path}"
     ```
 - wewnątrz definicji DAG (zamiast BashOperator):
     ```python
-    upload_customers_to_gcs_task = LocalFilesystemToGCSOperator(
+    upload_customers_to_gcs_task = BashOperator(
         task_id='upload_customers_to_gcs',
-        src=templated_customers_output_file,
-        dst=gcs_customers_target_path,
-        bucket=GCS_BUCKET_NAME,
-        gcp_conn_id='google_cloud_default', # Wykorzystuje domyślne połączenie skonfigurowane w Airflow
+        bash_command=upload_customers_to_gcs_command,
     )
 
-    upload_transactions_to_gcs_task = LocalFilesystemToGCSOperator(
+    upload_transactions_to_gcs_task = BashOperator(
         task_id='upload_transactions_to_gcs',
-        src=templated_transactions_output_file,
-        dst=gcs_transactions_target_path,
-        bucket=GCS_BUCKET_NAME,
-        gcp_conn_id='google_cloud_default',
+        bash_command=upload_transactions_to_gcs_command,
     )
     ```
 - w sekcji zależności:
     ```python
-    verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
+    check_books_file_exists_task >> generate_daily_data_task >> verify_files_exist_task >> [upload_customers_to_gcs_task, upload_transactions_to_gcs_task]
     ```
 
-> UWAGA: Zauważ, że w `LocalFilesystemToGCSOperator` parametr `dst` nie zawiera prefiksu `gs://`, ponieważ nazwę bucketu podajemy w osobnym polu `bucket`.
+### Ustawienie zmiennych
 
-### Ustawienie zmiennych i połączeń
-
-Aby DAG działał poprawnie:
-1. Utwórz zmienną `GCS_bucket_name` w menu `Admin -> Variables`.
-2. Domyślne połączenie `google_cloud_default` (dostępne w `Admin -> Connections`) zazwyczaj nie wymaga edycji na maszynie VM w GCP, ponieważ Airflow automatycznie wykryje konto serwisowe przypisane do instancji.
+Aby DAG działał poprawnie, należy utworzyć zmienną `GCS_bucket_name` w menu `Admin -> Variables`. W polu `Val` umieść nazwę bucketu GCS, który został utworzony w laboratorium `terraform/lab-03`.
 
 #### Konfiguracja dostępu do GCP
 
 Wirtualna maszyna w GCP posiada domyślnie skonfigurowany dostęp do usług Cloud Storage za pośrednictwem przypisanego konta serwisowego. Nie jest wymagana dodatkowa konfiguracja `gsutil` ani plików credentials.
-
-> **UWAGA - Rozwiązywanie problemów:** Jeśli po dodaniu operatora `LocalFilesystemToGCSOperator` w interfejsie Airflow pojawi się błąd `ModuleNotFoundError: No module named 'airflow.providers.google'`, oznacza to, że w Twoim środowisku Python nie jest zainstalowany pakiet dostawcy Google. Możesz to naprawić na dwa sposoby:
->
-> 1. **Zainstaluj brakujący pakiet:** Wykonaj w terminalu polecenie:
->    ```shell
->    pip install apache-airflow-providers-google
->    ```
->    Następnie zrestartuj Airflow.
->
-> 2. **Użyj alternatywy (BashOperator):** Jeśli nie chcesz instalować dodatkowych pakietów, możesz pozostać przy `BashOperator` i narzędziu `gsutil`, które jest domyślnie dostępne na maszynie VM. Wtedy Twoje zadania będą wyglądać tak:
->    ```python
->    upload_customers_to_gcs_task = BashOperator(
->        task_id='upload_customers_to_gcs',
->        bash_command=f"gsutil cp {templated_customers_output_file} gs://{GCS_BUCKET_NAME}/{gcs_customers_target_path}",
->    )
->    ```
-
-### Cathup & Backfilling
-
-#### Catchup
-Airflow umożliwia załadowanie danych historycznych. Aby załadować dane z poprzednich 7 dni, zaktualizuj `start_date=days_ago(7)` oraz ustaw `catchup=True`.
-
-#### Usunięcie informacji o DAG
-Aby zresetować stan DAGa, użyj opcji `Delete DAG`. Definicja wciąż pozostanie w pliku, ale historia wykonań zostanie wyczyszczona. Po ponownym włączeniu, funkcja `catchup` uzupełni brakujące dni.
-
-#### Backfilling
-Możesz również skorzystać z CLI do wymuszenia ładowania za konkretny okres:
-```shell
-airflow dags backfill --start-date 2025-05-20 --end-date 2025-05-22 daily_data_generator
-```
 
 #### Generowanie danych dla istniejących użytkowników (TaskFlow & DuckDB)
 
@@ -1116,28 +1092,72 @@ Dodajmy bloki wykorzystujące notację `taskflow` oraz DuckDB do odczytu danych 
     import duckdb
 
     @task
-    def read_gcs_hive_and_export():
+    def read_gcs_hive_and_export(ds, ds_nodash):
+        import subprocess
+        import shutil
+        from google.cloud import storage
+        from google.cloud import bigquery
+
+        # Lokalne pobranie danych klientów
+        local_raw_dir = "/tmp/gcs_customers_raw"
+        if os.path.exists(local_raw_dir):
+            shutil.rmtree(local_raw_dir)
+        os.makedirs(local_raw_dir)
+
+        gcs_src = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/"
+        subprocess.run(["gsutil", "-m", "cp", "-r", gcs_src, local_raw_dir], check=True)
+
         con = duckdb.connect(database=':memory:', read_only=False)
-        con.sql("INSTALL httpfs; LOAD httpfs;")
-        # Konfiguracja uwierzytelnienia GCS dla DuckDB
-        con.sql("CREATE SECRET (TYPE GCS, PROVIDER 'gce');")
+        
+        # DuckDB scala wszystkich klientów (Hive Partitioning)
+        all_customers_csv = "/tmp/all_customers.csv"
+        local_path_pattern = f"{local_raw_dir}/customers/date=*/*.csv"
 
-        gcs_path_pattern = f"gs://{GCS_BUCKET_NAME}/data-lake/raw-data/customers/date=*/*.csv"
-        local_output_file = "/tmp/all_customers.csv"
-
-        query = f"""
-        COPY (SELECT * FROM read_csv_auto('{gcs_path_pattern}', hive_partitioning=TRUE))
-        TO '{local_output_file}' (HEADER, DELIMITER ',');
-        """
+        query = f"COPY (SELECT * FROM read_csv_auto('{local_path_pattern}', hive_partitioning=TRUE)) TO '{all_customers_csv}' (HEADER, DELIMITER ',');"
         con.sql(query)
         con.close()
 
-    export_task = read_gcs_hive_and_export()
+        # Generowanie transakcji dla WSZYSTKICH klientów
+        all_transactions_json = f"/tmp/all_customers_transactions-{ds_nodash}.json"
+        books_input = os.path.join(os.path.dirname(GENERATOR_SCRIPT_PATH), "books.csv")
+        
+        gen_transactions_cmd = [
+            "python", GENERATOR_SCRIPT_PATH,
+            "--generate", "transactions",
+            "--customers-input", all_customers_csv,
+            "--transactions-output", all_transactions_json,
+            "--books-input", books_input,
+            "--start-date", ds,
+            "--end-date", ds
+        ]
+        subprocess.run(gen_transactions_cmd, check=True)
+
+        # Upload do GCS przy użyciu biblioteki google-cloud-storage (wymaga zainstalowanej biblioteki w obrazie)
+        client = storage.Client()
+        bucket = client.bucket(GCS_BUCKET_NAME)
+        
+        gcs_dest_path = f"data-lake/raw-data/transactions/date={ds}/all_customers_transactions-{ds_nodash}.json"
+        blob = bucket.blob(gcs_dest_path)
+        blob.upload_from_filename(all_transactions_json)
+
+    export_task = read_gcs_hive_and_export(ds="{{ ds }}", ds_nodash="{{ ds_nodash }}")
 ```
 
-#### Analiza danych z wykorzystaniem BigQuery
+Powyższy kod wygeneruje transakcje dla istniejących użytkowników, symulując kolejne zakupy.
 
-W środowisku GCP do analizy danych w formacie Hive na GCS najlepiej wykorzystać **BigQuery External Tables**. Pozwala to na odpytywanie plików CSV/JSON bezpośrednio z GCS przy użyciu standardowego SQL.
+### Cathup & Backfilling
+
+#### Catchup
+Airflow umożliwia załadowanie danych historycznych. Aby załadować dane z poprzednich 7 dni, zaktualizuj `start_date=days_ago(3)` oraz ustaw `catchup=True`.
+
+#### Usunięcie informacji o DAG
+Aby zresetować stan DAGa, użyj opcji `Delete DAG`. Definicja wciąż pozostanie w pliku, ale historia wykonań zostanie wyczyszczona. Po ponownym włączeniu, funkcja `catchup` uzupełni brakujące dni.
+
+#### Backfilling
+Możesz również skorzystać z CLI do wymuszenia ładowania za konkretny okres (np. ostatnie 7 dni):
+```shell
+airflow dags backfill --start-date $(date -d "7 days ago" +%Y-%m-%d) --end-date $(date -d "1 days ago" +%Y-%m-%d) daily_data_generator
+```
 
 ### Analiza struktury i przepływu danych (Lab 04)
 
@@ -1164,9 +1184,639 @@ Po uruchomieniu pełnego DAGa `daily_data_generator` (wraz z uploadem do GCS i T
 
 > PYTANIE: Jakie są zalety przechowywania surowych danych (raw data) w GCS w formacie Hive, zamiast ładowania ich bezpośrednio do bazy DuckDB przy każdym uruchomieniu?
 
+## Lab 05: BigQuery & External Tables
 
-### Zadania dodatkowe:
-1. Korzystając z dbt utwórz modele w downstream, które nie zawierają klientów, którzy nie zawarli żadnej transakcji.
-2. Wykorzystaj materializację `incremental`, która będzie ładowała do 'hurtowni danych' wyłącznie nowe rekordy.
-3. Zaproponuj dodatkowe pola techniczne zawierające np. informacje o dacie ładowania, pliku źródłowym, ostatniej aktualizacji itp. i zaimplementuj je w modelu.
+W tym laboratorium nauczymy się, jak wykorzystać BigQuery do analizy danych składowanych w GCS (Data Lake) bez konieczności ich fizycznego importowania. Wykorzystamy **External Tables** oraz automatyczne wykrywanie partycji Hive.
+
+### Krok 0: Przygotowanie datasetów (Warstwy DWH)
+
+W profesjonalnych projektach dane dzielimy na warstwy, aby oddzielić dane surowe od przetworzonych i udostępnianych użytkownikom końcowym. Utworzymy następujące datasety w regionie **EU**:
+
+1. **`bookstore_src`**: Tutaj będą żyły tabele zewnętrzne (External Tables).
+2. **`bookstore_stg`**: Warstwa Staging - lekkie czyszczenie i standaryzacja.
+3. **`bookstore_dwh`**: Główna hurtownia - tabele Faktów i Wymiarów.
+4. **`bookstore_semantic`**: Warstwa semantyczna - gotowe raporty i widoki dla BI.
+5. **`bookstore_security`**: Bezpieczne miejsce na klucze szyfrujące (keystore).
+
+#### Metoda SQL:
+```sql
+CREATE SCHEMA IF NOT EXISTS `bookstore_src` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_stg` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_dwh` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_semantic` OPTIONS(location = 'EU');
+CREATE SCHEMA IF NOT EXISTS `bookstore_security` OPTIONS(location = 'EU');
+```
+
+### Krok 1: Tworzenie tabel zewnętrznych w warstwie SRC
+
+Zamiast kopiować dane, stworzymy "okno" na dane w GCS. BigQuery odczyta metadane i pozwoli na odpytywanie plików CSV oraz JSON bezpośrednio z Twojego bucketu.
+
+#### Tworzenie tabeli dla klientów (CSV)
+
+Otwórz konsolę BigQuery i wykonaj poniższe zapytanie DDL (pamiętaj o podstawieniu nazwy swojego bucketu w `uris`):
+
+```sql
+CREATE OR REPLACE EXTERNAL TABLE `bookstore_src.ext_customers`
+WITH PARTITION COLUMNS (date DATE)
+OPTIONS (
+    format = 'CSV',
+    uris = ['gs://<TWOJ_BUCKET>/data-lake/raw-data/customers/*'],
+    hive_partition_uri_prefix = 'gs://<TWOJ_BUCKET>/data-lake/raw-data/customers/',
+    skip_leading_rows = 1
+);
+```
+
+*(Dla transakcji wykonaj analogiczny krok przez GUI, wybierając dataset `bookstore_src`)*.
+
+#### Tworzenie tabeli dla transakcji (JSON) - Metoda przez GUI
+
+Tym razem użyjemy interfejsu graficznego BigQuery, aby zobaczyć, jak skonfigurować partycjonowanie bez pisania SQL.
+
+1.  W konsoli BigQuery, kliknij trzy kropki obok swojego zestawu danych `bookstore` i wybierz **Create table**.
+2.  **Source:**
+    - Create table from: **Google Cloud Storage**
+    - Select file from GCS bucket: `gs://<TWOJ_BUCKET>/data-lake/raw-data/transactions/*`
+    - File format: **JSONL (Newline delimited JSON)**
+3.  **Destination:**
+    - Table: `ext_transactions`
+4.  **Schema:**
+    - Zaznacz **Auto detect**.
+5.  **Partitioning and cluster settings (Kluczowy krok):**
+    - Zaznacz checkbox **Source data partitioning**.
+    - **Source URI prefix:** `gs://<TWOJ_BUCKET>/data-lake/raw-data/transactions/`
+    - **Partition inference mode:** Upewnij się, że wybrane jest **Automatically infer types** (BigQuery wykryje kolumnę `date` na podstawie struktury folderów).
+6.  Kliknij **Create table**.
+
+### Krok 2: Analiza danych i Partition Pruning
+
+Dzięki `hive_partition_uri_prefix`, BigQuery automatycznie dodał kolumnę `date` do Twoich danych. Sprawdźmy to!
+
+1. **Podstawowe zapytanie:**
+   ```sql
+   SELECT * FROM `bookstore_src.ext_customers` LIMIT 10;
+   ```
+   *Zauważ, że kolumna `date` znajduje się na końcu, mimo że nie ma jej w plikach CSV.*
+
+2. **Wykorzystanie partycji:**
+   Sprawdź, ile danych zostanie przeskanowanych przez BigQuery przy filtrowaniu po dacie:
+   ```sql
+   SELECT count(*) 
+   FROM `bookstore_src.ext_transactions` 
+   WHERE date = CURRENT_DATE();
+   ```
+   *W prawym górnym rogu edytora SQL zobaczysz informację o rozmiarze skanowanych danych. Dzięki partycjonowaniu Hive, BigQuery pobierze tylko te pliki, które znajdują się w folderze odpowiadającym danej dacie.*
+
+### Krok 3: Udowodnienie niemodyfikowalności (Immutable)
+
+Tabele zewnętrzne (External Tables) są z definicji **tylko do odczytu** z poziomu SQL. Spróbuj wykonać poniższe operacje na tabeli zewnętrznej:
+
+1. **Próba usunięcia danych:**
+   ```sql
+   DELETE FROM `bookstore_src.ext_customers` WHERE age > 50;
+   ```
+   *Oczekiwany rezultat: Błąd informujący, że operacje DML nie są wspierane dla tabel zewnętrznych.*
+
+2. **Próba aktualizacji:**
+   ```sql
+   UPDATE `bookstore_src.ext_customers` SET first_name = 'TEST' WHERE customer_id = 1;
+   ```
+   *Oczekiwany rezultat: Błąd.*
+
+> **WNIOSEK:** Tabele zewnętrzne służą do odczytu danych (E - Extract). Aby móc je modyfikować i optymalizować, musimy je załadować do natywnych tabel BigQuery (L - Load), co zrobimy w kolejnym kroku.
+
+---
+### Zadania do wykonania:
+1. **Złączenie tabel (JOIN):** Utwórz zapytanie, które połączy tabelę `ext_transactions` z `ext_customers` po kolumnie `customer_id`. Znajdź 5 krajów, z których pochodzą klienci generujący najwyższy obrót (sumę transakcji).
+2. **Dynamiczne uzupełnianie danych:**
+   - Wybierz datę z przeszłości.
+   - Uruchom backfilling dla tej daty, korzystając z Airflow CLI:
+     ```shell
+     airflow dags backfill --start-date 2026-04-07 --end-date 2026-04-07 daily_data_generator
+     ```
+   - Po zakończeniu zadania w Airflow, wróć do BigQuery i wykonaj zapytanie filtrujące po tej dacie:
+     ```sql
+     SELECT * FROM `bookstore.ext_transactions` WHERE date = '2026-04-07';
+     ```
+   - Zaobserwuj, że BigQuery "zauważył" nowe dane w GCS bez jakiejkolwiek zmiany konfiguracji tabeli zewnętrznej. To jest właśnie potęga architektury Data Lake!
+
+### Krok 4: dbt & DWH - Od Data Lake do RODO (Crypto-shredding)
+
+W tym kroku przekształcimy nasze surowe dane z GCS w profesjonalną hurtownię danych w BigQuery. Wykorzystamy dbt do automatyzacji tego procesu oraz zaimplementujemy zaawansowaną technikę ochrony prywatności: **Crypto-shredding**.
+
+#### Koncepcja Crypto-shredding
+Zamiast fizycznie usuwać rekordy klienta (co jest trudne w dużych zbiorach i psuje spójność analityczną), szyfrujemy dane wrażliwe (PII) unikalnym kluczem dla każdego użytkownika. 
+- **Dane wrażliwe:** email, numer telefonu, nazwisko.
+- **Klucze:** Przechowywane w oddzielnej, zabezpieczonej tabeli `user_keys`.
+- **Zapomnienie (RODO):** Usunięcie klucza użytkownika z tabeli `user_keys` sprawia, że jego dane stają się nieczytelnym ciągiem znaków (shredded), mimo że rekordy w transakcjach nadal istnieją.
+
+### Krok 5: Inicjalizacja nowego projektu dbt dla BigQuery
+
+Zamiast modyfikować poprzedni projekt (który był zoptymalizowany pod DuckDB), utworzymy zupełnie nowy projekt dbt dedykowany dla BigQuery.
+
+1. Przejdź do katalogu laboratorium:
+   ```shell
+   cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/
+   ```
+2. Zainicjalizuj nowy projekt dbt:
+   ```shell
+   dbt init dbt_bq_project --skip-profile-setup
+   ```
+
+3. Utwórz plik `profiles.yml` bezpośrednio w katalogu `/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/`:
+
+```yaml
+dbt_bq_project:
+  outputs:
+    dev:
+      type: bigquery
+      method: oauth
+      project: <TWOJ_PROJEKT_GCP>
+      dataset: bookstore
+      threads: 4
+      location: EU
+      priority: interactive
+  target: dev
+```
+
+4. Przetestuj połączenie, wskazując jawnie ścieżkę do profilu:
+   ```shell
+   cd dbt_bq_project
+   dbt debug --profiles-dir ../
+   ```
+   *Używamy `--profiles-dir ../`, ponieważ nasz plik `profiles.yml` znajduje się o jeden poziom wyżej niż główny folder projektu dbt.*
+
+5. Aby zapobiec konieczności dodawania przełącznika `--profiles-dir` do każdej kolejnej komendy, ustaw zmienną środowiskową:
+   ```shell
+   export DBT_PROFILES_DIR=/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt05/
+   ```
+   *Od tego momentu dbt będzie automatycznie szukał profilu we wskazanym katalogu.*
+
+### Krok 6: Konfiguracja dbt_project.yml i targetów
+
+W pliku `dbt_project.yml` skonfigurujemy **custom schemas**, aby dbt automatycznie umieszczał modele w odpowiednich datasetach na podstawie ich lokalizacji w folderach:
+
+```yaml
+models:
+  dbt_bq_project:
+    staging:
+      +schema: stg
+    dwh:
+      core:
+        +schema: dwh
+    semantic:
+      +schema: semantic
+    keystore:
+      +schema: security
+
+*Uwaga: dbt domyślnie dodaje prefiks (np. `bookstore_stg`). W laboratorium skonfigurujemy makro `generate_schema_name`, aby używać dokładnych nazw. W tym celu utwórz plik `macros/generate_schema_name.sql` i wklej poniższy kod:*
+
+```sql
+{% macro generate_schema_name(custom_schema_name, node) -%}
+    {%- set default_schema = target.schema -%}
+    {%- if custom_schema_name is none -%}
+        {{ default_schema }}
+    {%- else -%}
+        {{ custom_schema_name | trim }}
+    {%- endif -%}
+{%- endmacro %}
+```
+
+### Krok 7: Definicja źródeł (Sources)
+
+Plik `models/staging/sources.yml` musi teraz wskazywać na dataset źródłowy. Zamiast wpisywać nazwę projektu na sztywno, użyjemy zmiennej Jinja `{{ target.project }}`, która automatycznie pobierze ID projektu z Twojego pliku `profiles.yml`:
+
+```yaml
+version: 2
+sources:
+  - name: gcs_raw
+    database: "{{ target.project }}"
+    schema: bookstore_src
+    tables:
+      - name: ext_customers
+      - name: ext_transactions
+```
+
+### Krok 8: Warstwowa implementacja modeli
+
+#### 1. Keystore (`models/keystore/user_keys.sql`) -> dataset: `bookstore_security`
+
+**Dlaczego model inkrementalny?** 
+W przypadku Crypto-shreddingu musimy zagwarantować, że raz wygenerowany klucz dla danego klienta nigdy się nie zmieni. Gdybyśmy użyli zwykłej tabeli, każde uruchomienie generowałoby nowe klucze, co uniemożliwiłoby odczytanie wcześniej zaszyfrowanych danych.
+
+```sql
+{{
+    config(
+        materialized='incremental',
+        unique_key='customer_id'
+    )
+}}
+
+SELECT
+    customer_id,
+    -- Generujemy profesjonalny zestaw kluczy AEAD
+    TO_HEX(KEYS.NEW_KEYSET('AEAD_AES_GCM_256')) as encryption_key
+FROM {{ source('gcs_raw', 'ext_customers') }}
+
+{% if is_incremental() %}
+  WHERE customer_id NOT IN (SELECT customer_id FROM {{ this }})
+{% endif %}
+```
+
+#### 2. Staging (`models/staging/stg_customers.sql`) -> dataset: `bookstore_stg`
+W tej warstwie anonimizujemy dane wrażliwe oraz naprawiamy błędy w danych źródłowych przy użyciu nowoczesnego SQL (`SELECT * REPLACE`).
+
+```sql
+SELECT
+    c.* REPLACE (
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), first_name, '')) as first_name,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), last_name, '')) as last_name,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), email, '')) as email,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), phone_number, '')) as phone_number,
+        TO_HEX(AEAD.ENCRYPT(SAFE.FROM_HEX(k.encryption_key), address, '')) as address,
+        date as registration_date
+    )
+FROM {{ source('gcs_raw', 'ext_customers') }} c
+JOIN {{ ref('user_keys') }} k ON c.customer_id = k.customer_id
+```
+*Zauważ: Dzięki `REPLACE`, podmieniamy oryginalne wartości wrażliwe na ich zaszyfrowane odpowiedniki oraz naprawiamy `registration_date`, zachowując jednocześnie wszystkie pozostałe kolumny z tabeli źródłowej.*
+
+#### 3. Core DWH (`models/dwh/core/dim_customers.sql`) -> dataset: `bookstore_dwh`
+Tu budujemy czyste wymiary gotowe do analizy. Modele w tej warstwie materializujemy jako **tabele**, aby zapewnić wysoką wydajność dla użytkowników końcowych i narzędzi BI.
+
+```sql
+{{ config(materialized='table') }}
+
+SELECT * FROM {{ ref('stg_customers') }}
+```
+
+### Krok 9: Crypto-shredding w praktyce – Laboratorium RODO
+
+W tym kroku sprawdzimy, jak w rzeczywistości działają mechanizmy ochrony danych, które zaimplementowaliśmy.
+
+#### 1. Materializacja projektu
+Uruchom wszystkie modele dbt, aby stworzyć tabele w BigQuery:
+```shell
+dbt run
+```
+w przypadku, jeśli nie została ustawiona zmienna środowiskowa `DBT_PROFILES_DIR` może być konieczne wskazanie ścieżki do profilu, np.
+```shell
+dbt run --profiles-dir=../
+```
+
+#### 2. Weryfikacja w BigQuery i "Audyt" danych
+Przejdź do konsoli Google Cloud. Wykonaj zapytanie, które porówna dane zanonimizowane z ich oryginalną formą (odzyskaną dzięki kluczowi). To pozwoli Ci zrozumieć, jak szyfrowanie zmienia dane:
+
+```sql
+SELECT
+    stg.customer_id,
+    SAFE.AEAD.DECRYPT_STRING(SAFE.FROM_HEX(k.encryption_key), FROM_HEX(stg.email), '') as original_email,
+    stg.email as encrypted_email,
+    SAFE.AEAD.DECRYPT_STRING(SAFE.FROM_HEX(k.encryption_key), FROM_HEX(stg.first_name), '') as original_first_name
+    stg.first_name as encrypted_first_name,
+    k.encryption_key
+FROM `bookstore_stg.stg_customers` stg
+JOIN `bookstore_security.user_keys` k ON stg.customer_id = k.customer_id
+LIMIT 10;
+```
+*Zauważ: Jako administrator masz dostęp do kluczy, więc możesz odtworzyć dane surowe. Jednak analityk pracujący tylko na `bookstore_dwh` widzi tylko `encrypted_email`.*
+#### 3. Symulacja "Prawa do zapomnienia" (RODO)
+Zamiast usuwać rekordy, "niszczymy" klucze szyfrujące dla konkretnych osób.
+
+**A. Unieważnienie kluczy dla 5 losowych klientów:**
+Używamy `UPDATE` zamiast `DELETE`, aby model inkrementalny dbt "widział", że ci klienci już mają przypisany rekord (pusty) i nie generował dla nich nowych kluczy w przyszłości.
+
+```sql
+UPDATE `bookstore_security.user_keys`
+SET encryption_key = NULL
+WHERE customer_id IN (
+  SELECT customer_id FROM `bookstore_security.user_keys` ORDER BY rand() LIMIT 5
+);
+```
+
+**B. Sprawdzenie efektu (bez uruchamiania dbt!):**
+Ponieważ `stg_customers` to **widok**, zmiana w tabeli kluczy jest widoczna natychmiast:
+
+```sql
+-- Sprawdź te same 5 osób w widoku Staging
+SELECT customer_id, first_name, email 
+FROM `bookstore_stg.stg_customers` 
+WHERE email IS NULL;
+```
+*Zauważ: Dane stały się bezużyteczne (NULL), mimo że rekord w plikach źródłowych GCS nadal istnieje. To jest właśnie **Crypto-shredding**.*
+
+**C. Różnica między widokiem a tabelą (DWH):**
+Wykonaj zapytanie do tabeli `dim_customers` w warstwie DWH:
+```sql
+SELECT * FROM `bookstore_dwh.dim_customers` WHERE email IS NULL;
+```
+*Wynik to prawdopodobnie inny. Dlaczego? Bo `dim_customers` to **zmaterializowana tabela**. Aby "zapomnienie" propagowało się do hurtowni, musisz teraz uruchomić `dbt run`.*
+
+---
+
+## Lab 06: Zaawansowane modelowanie w BigQuery – Warstwy Prepared (PREP) i DWH
+
+W tym laboratorium rozbudujemy naszą hurtownię danych o brakujące elementy, wprowadzimy bardziej rygorystyczną strukturę warstwową (PREP) oraz nauczymy się efektywnie pracować z danymi zagnieżdżonymi (Nested Data) w BigQuery.
+
+### Cel laboratorium:
+1. Implementacja warstwy **Prepared (PREP)** w celu optymalizacji i reużywalności kodu SQL.
+2. Praca z typami **NESTED** i **REPEATED** (JSON) w BigQuery – technika `UNNEST`.
+3. Budowa pełnej warstwy **DWH** (Fakty, Wymiary, Metryki).
+4. Refaktoryzacja projektu dbt w celu poprawy czytelności i łatwości utrzymania.
+
+### Krok 0: Programowy eksport danych (DuckDB -> Parquet przez HMAC)
+
+Zamiast polegać na domyślnej autentykacji, nauczymy się korzystać z kluczy **HMAC**, które pozwalają DuckDB komunikować się z GCS za pomocą protokołu kompatybilnego z S3. Wyeksportujemy dane do formatu **Parquet**, który jest zoptymalizowany pod kątem wydajności i przechowywania metadanych.
+
+1. **Wygeneruj klucze HMAC w konsoli Google Cloud:**
+   - Przejdź do [Cloud Storage -> Settings](https://console.cloud.google.com/storage/settings).
+   - Wybierz zakładkę **Interoperability**.
+   - W sekcji "Access keys for your user account" kliknij **Create a key**.
+   - **Skopiuj i zachowaj bezpiecznie:** `Access Key` oraz `Secret`.
+
+2. **Uruchom DuckDB i skonfiguruj dostęp:**
+   ```shell
+   duckdb /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt01/bookstore.ddb
+   ```
+
+3. **Zainstaluj rozszerzenia i skonfiguruj Secret:**
+   Wewnątrz CLI DuckDB wykonaj (podstawiając swoje klucze):
+   ```sql
+   INSTALL httpfs;
+   LOAD httpfs;
+
+   CREATE SECRET (
+       TYPE gcs,
+       KEY_ID 'TWOJ_ACCESS_KEY',
+       SECRET 'TWOJ_SECRET'
+   );
+   ```
+
+4. **Eksport tabeli do formatu Parquet bezpośrednio na GCS:**
+   ```sql
+   -- Pamiętaj o podstawieniu nazwy swojego bucketu!
+   COPY books TO 'gs://<TWOJ_BUCKET>/data-lake/raw-data/books/books.parquet' (FORMAT 'PARQUET');
+   ```
+
+5. **Zamknij DuckDB:**
+   ```sql
+   .quit
+   ```
+
+### Krok 1: Dodanie danych źródłowych w BigQuery (Format Parquet)
+
+Format Parquet, podobnie jak Avro, przechowuje schemat danych, co czyni proces tworzenia tabeli w BigQuery bardzo prostym.
+
+1. **Utwórz tabelę zewnętrzną dla książek:**
+   W konsoli BigQuery wykonaj poniższe zapytanie, wskazując format `PARQUET`.
+
+   ```sql
+   CREATE OR REPLACE EXTERNAL TABLE `bookstore_src.ext_books`
+   OPTIONS (
+       format = 'PARQUET',
+       uris = ['gs://<TWOJ_BUCKET>/data-lake/raw-data/books/books.parquet']
+   );
+   ```
+
+2. **Weryfikacja:**
+   Sprawdź, czy dane są widoczne:
+   ```sql
+   SELECT * FROM `bookstore_src.ext_books` LIMIT 5;
+   ```
+
+### Krok 2: Nowa struktura projektu dbt
+
+W profesjonalnych projektach dbt, folder `models` dzielimy na podfoldery odpowiadające warstwom przetwarzania. W tym laboratorium wprowadzamy:
+- **`staging`**: (już znamy) bezpośrednie odwzorowanie źródeł z minimalnym czyszczeniem.
+- **`prep`**: warstwa "robocza", gdzie łączymy dane z różnych źródeł stagingowych, ale jeszcze nie wystawiamy ich użytkownikom.
+- **`dwh`**: warstwa końcowa, zawierająca tabele zoptymalizowane pod kątem raportowania (Fakty i Wymiary).
+- **`keystore`**: (już znamy) miejsce na klucze do szyfrowania.
+
+**Dopasowanie modelu `stg_books.sql`:**
+Ponieważ format Parquet zachował oryginalne nazwy kolumn z pliku źródłowego (w tym wielkie litery i spacje, które BigQuery zamieniło na podkreślenia), musimy zaktualizować model stagingowy, aby mapował te nazwy na nasz standard:
+
+```sql
+-- models/staging/stg_books.sql
+SELECT
+    index as book_id,
+    Publishing_Year as publishing_year,
+    Book_Name as title,
+    Author as author,
+    language_code,
+    Author_Rating as author_rating,
+    Book_average_rating as book_average_rating,
+    Book_ratings_count as book_ratings_count,
+    genre as category,
+    gross_sales,
+    publisher_revenue,
+    sale_price as price,
+    sales_rank,
+    Publisher_ as publisher,
+    units_sold
+FROM {{ source('gcs_raw', 'ext_books') }}
+```
+
+Przejdź do folderu laboratorium 06:
+```shell
+cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+```
+
+### Krok 3: Warstwa Prepared (PREP) i Spójność Danych (Data Integrity)
+
+Często te same operacje złączenia (JOIN) są powtarzane w wielu modelach końcowych. Zamiast kopiować kod, tworzymy model Prepared (PREP). W BigQuery, aby wzbogacić dane zagnieżdżone (tablicę produktów) o dane z innej tabeli (książki), musimy zastosować technikę **Rozpłaszczenia -> Złączenia -> Ponownego Zagregowania (Flatten -> Join -> Aggregate)**. 
+
+**Obsługa błędnych danych (Klucz Techniczny -1):**
+Zamiast "cicho" gubić dane lub pozwalać na pojawienie się `NULL`, zastosujemy profesjonalną technikę **Dummy Record**. Każdy nieprawidłowy `book_id` (np. tekst "UNKNOWN") zostanie zamieniony na `-1`, a w tabeli książek utworzymy sztuczny rekord o tym identyfikatorze.
+
+**Model `stg_books.sql` (z rekordem technicznym):**
+```sql
+-- models/staging/stg_books.sql
+WITH source AS (
+    SELECT
+        CAST(index AS INT64) as book_id,
+        Publishing_Year as publishing_year,
+        Book_Name as title,
+        Author as author,
+        language_code,
+        Author_Rating as author_rating,
+        Book_average_rating as book_average_rating,
+        Book_ratings_count as book_ratings_count,
+        genre as category,
+        gross_sales,
+        publisher_revenue,
+        sale_price as price,
+        sales_rank,
+        Publisher_ as publisher,
+        units_sold
+    FROM {{ source('gcs_raw', 'ext_books') }}
+),
+
+dummy_record AS (
+    SELECT
+        -1 as book_id,
+        NULL as publishing_year,
+        'Nieznana Książka (Błąd danych)' as title,
+        'System' as author,
+        'PL' as language_code,
+        '0' as author_rating,
+        0.0 as book_average_rating,
+        0 as book_ratings_count,
+        'Unknown' as category,
+        0.0 as gross_sales,
+        0.0 as publisher_revenue,
+        0.0 as price,
+        99999 as sales_rank,
+        'System' as publisher,
+        0 as units_sold
+)
+
+SELECT * FROM source
+UNION ALL
+SELECT * FROM dummy_record
+```
+
+**Model `prep_transactions_enriched.sql` (z użyciem COALESCE):**
+```sql
+-- models/prep/prep_transactions_enriched.sql
+WITH transactions AS (
+    SELECT * FROM {{ source('gcs_raw', 'ext_transactions') }}
+),
+
+customers AS (
+    SELECT * FROM {{ ref('stg_customers') }}
+),
+
+books AS (
+    SELECT * FROM {{ ref('stg_books') }}
+),
+
+flattened_items AS (
+    SELECT
+        t.transaction_id,
+        STRUCT(
+            COALESCE(SAFE_CAST(i.book_id AS INT64), -1) as book_id,
+            b.title as book_title,
+            b.author as book_author,
+            b.publisher as book_publisher,
+            b.category as book_category,
+            i.unit_price,
+            i.quantity
+        ) as item_enriched
+    FROM transactions t
+    CROSS JOIN UNNEST(t.items) i
+    LEFT JOIN books b ON COALESCE(SAFE_CAST(i.book_id AS INT64), -1) = b.book_id
+),
+
+enriched_items_array AS (
+    SELECT
+        transaction_id,
+        ARRAY_AGG(item_enriched) as items
+    FROM flattened_items
+    GROUP BY 1
+)
+
+SELECT
+    t.transaction_id,
+    t.customer_id,
+    t.transaction_date,
+    t.cash_register,
+    t.cashier,
+    c.first_name,
+    c.last_name,
+    c.email,
+    c.registration_date,
+    e.items
+FROM transactions t
+JOIN customers c ON t.customer_id = c.customer_id
+JOIN enriched_items_array e ON t.transaction_id = e.transaction_id
+```
+
+### Krok 4: Handling Nested Data – UNNEST vs Nested
+
+BigQuery świetnie radzi sobie z danymi zagnieżdżonymi. Dzięki wzbogaceniu danych w kroku poprzednim, nasz model płaski staje się bardzo prosty do zdefiniowania, a jednocześnie niezwykle bogaty w informacje.
+
+**Model `flat_transactions.sql` (Płaski):**
+Używamy `UNNEST(items)`, aby "rozpłaszczyć" transakcje. Zauważ, że pola takie jak `book_title` czy `book_author` są już dostępne wewnątrz struktury `item`.
+
+```sql
+-- models/dwh/core/flat_transactions.sql
+{{
+    config(
+        materialized='table' 
+    )
+}}
+
+SELECT
+    t.transaction_id,
+    t.customer_id,
+    t.transaction_date,
+    t.cash_register,
+    t.cashier,
+    t.first_name,
+    t.last_name,
+    t.email,
+    t.registration_date,
+    item.book_id,
+    item.book_title,
+    item.book_author,
+    ABS(FARM_FINGERPRINT(item.book_author)) as author_id,
+    item.book_publisher,
+    ABS(FARM_FINGERPRINT(item.book_publisher)) as publisher_id,
+    item.book_category,
+    item.unit_price,
+    item.quantity,
+    item.unit_price * item.quantity as total_item_price
+FROM {{ ref('prep_transactions_enriched') }} t,
+UNNEST(items) as item
+```
+
+### Krok 5: Warstwa DWH – Fakty i Metryki
+
+W warstwie `dwh/core` tworzymy ostateczne tabele, które będą służyć do analiz.
+
+1. **`fct_transactions`**: Tabela faktów, oparta na modelu płaskim. Zawiera najbardziej szczegółowe dane o sprzedaży.
+2. **`dim_customers`, `dim_books`, `dim_authors` i `dim_publishers`**: Tabele wymiarów, zawierające atrybuty opisowe.
+3. **`metrics_daily_sales`**: Model agregujący, który oblicza dzienne statystyki (sprzedaż, liczba klientów, przychód).
+4. **`nested_transactions` / `flat_transactions`**: Zmaterializowane modele główne.
+
+**Model `metrics_daily_sales.sql`:**
+```sql
+-- models/dwh/core/metrics_daily_sales.sql
+SELECT
+    transaction_date,
+    COUNT(DISTINCT transaction_id) as total_transactions,
+    COUNT(DISTINCT customer_id) as total_customers,
+    SUM(quantity) as total_items_sold,
+    SUM(total_item_price) as total_revenue
+FROM {{ ref('fct_transactions') }}
+GROUP BY 1
+ORDER BY 1 DESC
+```
+
+### Krok 6: Uruchomienie i weryfikacja
+
+1. Skonfiguruj profil dbt (możesz użyć pliku `profiles.yml` z folderu `lab-dbt06`).
+2. Ustaw zmienną środowiskową lub przejdź do folderu projektu:
+   ```shell
+   export DBT_PROFILES_DIR=/config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/
+   cd /config/workspace/spbd-lab-przetwarzanie-danych-w-chmurze/dbt/lab-dbt06/dbt_bq_project
+   ```
+3. Uruchom projekt:
+   ```shell
+   dbt run
+   ```
+4. Sprawdź w BigQuery, czy tabele pojawiły się w odpowiednich datasetach (`bookstore_stg`, `bookstore_dwh`, `bookstore_security`).
+
+### Podsumowanie Lab 06
+
+W tym laboratorium nauczyliście się:
+*   Jak budować **warstwową architekturę** dbt (Staging -> Prepared (PREP) -> DWH).
+*   Jak efektywnie używać **modeli Prepared (PREP)** do unikania powtórzeń kodu.
+*   Jak operować na danych zagnieżdżonych w BigQuery za pomocą **UNNEST**.
+*   Różnicy między podejściem **Nested** a **Flat** w modelowaniu danych.
+*   Tworzenia modeli **metryk i agregacji** gotowych do wizualizacji.
+
+> **PYTANIE:** Dlaczego model `prep_transactions_enriched` zmaterializowaliśmy (domyślnie) jako widok, a nie tabelę?
+
+> **PYTANIE:** W jakich sytuacjach lepiej jest zostawić dane w formacie Nested zamiast ich "płaskiego" odpowiednika?
+
 

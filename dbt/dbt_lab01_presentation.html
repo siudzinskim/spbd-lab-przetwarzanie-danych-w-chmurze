@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 01 - Generowanie Danych i Wstęp do DuckDB</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 01</h1>
+					<h3>Inżynieria Danych: Fundamenty i Generowanie Danych</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Cel Laboratorium -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Pozyskanie i przygotowanie bazowego zestawu danych</li>
+						<li>Generowanie <strong>danych syntetycznych</strong> (Klienci, Transakcje)</li>
+						<li>Opanowanie podstaw <strong>DuckDB CLI</strong></li>
+						<li>Zrozumienie różnicy między tabelami a widokami zewnętrznymi</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div>
+							<h4>Język skryptowy</h4>
+							<p style="color: #3776ab;">Python 3</p>
+						</div>
+						<div>
+							<h4>Silnik Analityczny</h4>
+							<p style="color: #fff000;">DuckDB</p>
+						</div>
+						<div>
+							<h4>Formaty</h4>
+							<p style="color: #4285F4;">CSV / JSON</p>
+						</div>
+					</div>
+					<p class="fragment">DuckDB to nowoczesny, embedded silnik OLAP, który "zjada" CSV i JSON na śniadanie.</p>
+				</section>
+
+				<!-- Slajd 4: Pozyskiwanie Danych (get_books.py) -->
+				<section>
+					<h2>Start: Dane Bazowe</h2>
+					<p>Wykorzystujemy realny zestaw danych z Kaggle (Books Sales):</p>
+					<ul>
+						<li>Tytuły, autorzy, oceny, wydawcy.</li>
+						<li>Skrypt <code>get_books.py</code> przygotowuje plik <code>books.csv</code>.</li>
+					</ul>
+					<p class="fragment" style="color: #ff694b;"><strong>Uwaga:</strong> To nasz fundament dla reszty warsztatów.</p>
+				</section>
+
+				<!-- Slajd 5: Generowanie Syntetyczne -->
+				<section>
+					<h2>Symulacja Ekosystemu</h2>
+					<p>Uruchamiamy <code>generator.py</code>, aby stworzyć:</p>
+					<ul>
+						<li><strong>customers.csv:</strong> Profil klienta (wiek, kraj, data rejestracji).</li>
+						<li><strong>transactions.json:</strong> Zagnieżdżone dane o zakupach (items, ceny, ilości).</li>
+					</ul>
+					<p class="fragment">Technika kluczowa, gdy nie mamy dostępu do danych produkcyjnych na etapie deweloperskim.</p>
+				</section>
+
+				<!-- Slajd 6: Praca z DuckDB CLI -->
+				<section>
+					<section>
+						<h2>Instalacja i Start</h2>
+						<pre><code class="bash" data-trim>
+							curl https://install.duckdb.org | sh
+							duckdb bookstore.ddb
+						</code></pre>
+					</section>
+					<section>
+						<h2>Eksploracja Bazy</h2>
+						<ul>
+							<li><code>.tables</code> / <code>.schema</code> – struktura bazy</li>
+							<li><code>FROM books;</code> – skrócona kwerenda (specyfika DuckDB)</li>
+							<li><code>.import file.csv table</code> – szybkie ładowanie</li>
+						</ul>
+					</section>
+				</section>
+
+				<!-- Slajd 7: Tabele vs Widoki Zewnętrzne -->
+				<section>
+					<h2>Kluczowa Lekcja: Storage</h2>
+					<div style="display: flex; justify-content: space-around; font-size: 0.8em;">
+						<div style="border: 1px solid #fff; padding: 10px;">
+							<h4>TABLE</h4>
+							<p>Dane skopiowane do pliku <code>.ddb</code>. Szybkie, ale statyczne.</p>
+						</div>
+						<div style="border: 1px solid #fff; padding: 10px;">
+							<h4>VIEW (External)</h4>
+							<p>Dane czytane prosto z pliku JSON/CSV. Zawsze aktualne, ale zależne od pliku.</p>
+						</div>
+					</div>
+					<pre><code class="sql" data-trim>
+						CREATE VIEW v AS SELECT * FROM read_json('t.json');
+					</code></pre>
+				</section>
+
+				<!-- Slajd 8: Przebieg Warsztatu -->
+				<section>
+					<h2>Kroki Laboratorium</h2>
+					<ol style="font-size: 0.7em;">
+						<li>Sklonowanie repozytorium i setup środowiska.</li>
+						<li>Uruchomienie skryptów przygotowujących dane (Python).</li>
+						<li>Instalacja i konfiguracja DuckDB CLI.</li>
+						<li>Import danych klientów i transakcji (SQL).</li>
+						<li>Eksperymenty z bazami In-Memory vs Persistent.</li>
+						<li>Testowanie "odporności" widoków zewnętrznych na zmiany w systemie plików.</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Podsumowanie Lab 01</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Data Ingestion:</strong> Różne sposoby wprowadzania danych do silnika analitycznego.</li>
+						<li class="fragment"><strong>Formaty plikowe:</strong> Praktyczne różnice między CSV a JSON w analityce.</li>
+						<li class="fragment"><strong>DuckDB Mastery:</strong> Wykorzystanie nowoczesnego silnika do szybkiej eksploracji danych.</li>
+						<li class="fragment"><strong>Persystencja:</strong> Zarządzanie bazami plikowymi i sesjami In-Memory.</li>
+						<li class="fragment"><strong>Syntetyka:</strong> Budowa środowiska testowego przy braku realnych danych.</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>

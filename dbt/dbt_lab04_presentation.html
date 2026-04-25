@@ -1,0 +1,156 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 04 - Advanced Orchestration & Data Lake Ingestion</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 04</h1>
+					<h3>Zaawansowana Orkiestracja i Ingestion do Data Lake</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Wstęp -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Przejście od statycznych danych do <strong>dynamicznych potoków</strong></li>
+						<li>Automatyzacja procesu <strong>Ingestion</strong> do chmury (GCS)</li>
+						<li>Implementacja wzorca <strong>Hive Partitioning</strong></li>
+						<li>Zaawansowana parametryzacja DAG-ów</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div>
+							<h4>Storage</h4>
+							<p style="color: #4285F4;">Google Cloud Storage</p>
+						</div>
+						<div>
+							<h4>Hybrydowe ETL</h4>
+							<p style="color: #fff000;">DuckDB + Python</p>
+						</div>
+						<div>
+							<h4>Orkiestracja</h4>
+							<p style="color: #e2711d;">Airflow (Variables/Jinja)</p>
+						</div>
+					</div>
+					<p class="fragment">Wykorzystujemy <code>gsutil</code> oraz <code>google-cloud-storage</code> Python SDK do komunikacji z chmurą.</p>
+				</section>
+
+				<!-- Slajd 4: Dynamiczne Dane -->
+				<section>
+					<h2>Symulacja rzeczywistości</h2>
+					<p>Uruchamiamy <code>daily_data_generator</code>:</p>
+					<ul>
+						<li>Generowanie danych dla konkretnej daty wykonania (<code>ds</code>)</li>
+						<li>Zastosowanie unikalnych offsetów dla spójności danych</li>
+						<li>Automatyczne tworzenie plików klientów i transakcji</li>
+					</ul>
+					<pre><code class="python" data-trim>
+						templated_customers_output_file = f"customers-{{ ds_nodash }}.csv"
+					</code></pre>
+				</section>
+
+				<!-- Slajd 5: Hive Partitioning w Data Lake -->
+				<section>
+					<h2>Struktura w GCS</h2>
+					<p>Zamiast płaskiej listy plików, tworzymy hierarchię:</p>
+					<pre><code class="text" data-trim>
+						gs://bucket/raw-data/customers/
+						  ├── date=2024-01-01/
+						  │     └── customers-20240101.csv
+						  ├── date=2024-01-02/
+						  │     └── customers-20240102.csv
+					</code></pre>
+					<p class="fragment">Zalety: Szybsze filtrowanie, łatwiejsze odkrywanie danych (Data Discovery), zgodność ze standardami Big Data.</p>
+				</section>
+
+				<!-- Slajd 6: Zaawansowane Techniki Airflow -->
+				<section>
+					<section>
+						<h2>Airflow Variables</h2>
+						<p>Zarządzanie konfiguracją bez zmiany kodu:</p>
+						<pre><code class="python" data-trim>
+							GCS_BUCKET_NAME = Variable.get("GCS_bucket_name")
+						</code></pre>
+					</section>
+					<section>
+						<h2>Jinja Power</h2>
+						<p>Budowanie opcjonalnych flag komendy dbt:</p>
+						<pre><code class="jinja" data-trim>
+							{% if dag_run.conf.get('dbt_models') %}
+							  --select {{ dag_run.conf.get('dbt_models') }}
+							{% endif %}
+						</code></pre>
+					</section>
+				</section>
+
+				<!-- Slajd 7: Hybrydowy Processing -->
+				<section>
+					<h2>DuckDB + GCS + Python</h2>
+					<p>W Lab 04 realizujemy ambitne zadanie:</p>
+					<ol>
+						<li>Pobranie danych partycjonowanych z GCS</li>
+						<li><strong>DuckDB:</strong> Scalenie wielu plików CSV przy użyciu <code>hive_partitioning=TRUE</code></li>
+						<li><strong>Python:</strong> Logika biznesowa generowania nowych transakcji</li>
+						<li><strong>SDK:</strong> Przesłanie wyników z powrotem do chmury</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 8: Przebieg Warsztatu -->
+				<section>
+					<h2>Kroki Laboratorium</h2>
+					<div style="font-size: 0.8em;">
+						<p>1. Konfiguracja połączenia z Google Cloud (GCP).</p>
+						<p>2. Ustawienie Zmiennych (Variables) w UI Airflow.</p>
+						<p>3. Uruchomienie generatora danych i weryfikacja w GCS.</p>
+						<p>4. Praca z <code>dag_run.conf</code> – ręczne sterowanie dbt.</p>
+						<p>5. Analiza logów procesów hybrydowych.</p>
+					</div>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Czego nauczysz się w Lab 04?</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Data Ingestion:</strong> Przenoszenie danych lokalnych do Cloud Storage.</li>
+						<li class="fragment"><strong>Cloud Data Patterns:</strong> Implementacja Hive Partitioning w praktyce.</li>
+						<li class="fragment"><strong>DuckDB Advanced:</strong> Czytanie danych prosto z chmury i obsługa partycji.</li>
+						<li class="fragment"><strong>Airflow Customization:</strong> Wykorzystanie Variables i dynamicznej konfiguracji runtime.</li>
+						<li class="fragment"><strong>Hybrid Operators:</strong> Łączenie Bash i Python w ramach jednego przepływu.</li>
+						<li class="fragment"><strong>Modern ELT:</strong> Budowa potoków, które są skalowalne i łatwe w parametryzacji.</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>

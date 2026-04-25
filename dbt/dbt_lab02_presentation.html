@@ -1,0 +1,155 @@
+<!doctype html>
+<html lang="pl">
+	<head>
+		<meta charset="utf-8">
+		<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+
+		<title>Lab 02 - Wstęp do dbt (Data Build Tool)</title>
+
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reset.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.min.css">
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/theme/black.min.css">
+
+		<!-- Theme used for syntax highlighting of code -->
+		<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/monokai.min.css">
+	</head>
+	<body>
+		<div class="reveal">
+			<div class="slides">
+				<!-- Slajd 1: Tytuł -->
+				<section>
+					<h1>Lab 02</h1>
+					<h3>Pierwsze Kroki z dbt i DuckDB</h3>
+					<p>
+						<small>Warsztaty: Przetwarzanie Danych w Chmurze</small>
+					</p>
+				</section>
+
+				<!-- Slajd 2: Cel Laboratorium -->
+				<section>
+					<h2>Cel Laboratorium</h2>
+					<ul>
+						<li>Zrozumienie paradygmatu <strong>Analytics Engineering</strong></li>
+						<li>Konfiguracja środowiska pracy z <strong>dbt core</strong></li>
+						<li>Budowa pierwszego potoku transformacji SQL</li>
+						<li>Zastosowanie dobrych praktyk (testowanie i dokumentacja)</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 3: Dlaczego dbt? -->
+				<section>
+					<h2>Problem: Spaghetti SQL</h2>
+					<p>W Lab 01 ręcznie importowaliśmy dane. W Lab 02 wprowadzamy porządek:</p>
+					<ul>
+						<li><strong>Wersjonowanie:</strong> Kod SQL w plikach, nie w konsoli.</li>
+						<li><strong>Zależności:</strong> dbt wie, co uruchomić najpierw.</li>
+						<li><strong>Modularność:</strong> Reużywalne fragmenty kodu.</li>
+					</ul>
+				</section>
+
+				<!-- Slajd 4: Wykorzystane Technologie -->
+				<section>
+					<h2>Stack Technologiczny</h2>
+					<div style="display: flex; justify-content: space-around;">
+						<div>
+							<h4>Transformacja</h4>
+							<p style="color: #ff694b;">dbt (Data Build Tool)</p>
+						</div>
+						<div>
+							<h4>Silnik Bazy</h4>
+							<p style="color: #fff000;">DuckDB</p>
+						</div>
+						<div>
+							<h4>Formaty Danych</h4>
+							<p style="color: #4285F4;">CSV & JSON</p>
+						</div>
+					</div>
+					<p class="fragment">DuckDB służy jako lokalna "mini-hurtownia", idealna do prototypowania.</p>
+				</section>
+
+				<!-- Slajd 5: Kluczowe Koncepcje dbt -->
+				<section>
+					<section>
+						<h2>Seeds</h2>
+						<p>Ładowanie statycznych plików CSV (np. słowniki, klienci) prosto do bazy.</p>
+						<pre><code class="bash" data-trim>
+							dbt seed
+						</code></pre>
+					</section>
+					<section>
+						<h2>Sources</h2>
+						<p>Deklarowanie danych "surowych", które już są w bazie, a którymi dbt nie zarządza bezpośrednio.</p>
+					</section>
+					<section>
+						<h2>Models</h2>
+						<p>Pliki <code>.sql</code> zawierające kwerendy <code>SELECT</code>. dbt zamienia je w tabele lub widoki.</p>
+					</section>
+				</section>
+
+				<!-- Slajd 6: Magia: ref() i source() -->
+				<section>
+					<h2>Budowa Grafu (DAG)</h2>
+					<p>Zamiast wpisywać nazwy tabel na sztywno, używamy funkcji Jinja:</p>
+					<pre><code class="sql" data-trim>
+						-- Odwołanie do źródła
+						FROM {{ source('raw_data', 'books') }}
+
+						-- Odwołanie do innego modelu (zależność!)
+						FROM {{ ref('stg_customers') }}
+					</code></pre>
+					<p class="fragment">To pozwala dbt zbudować <strong>Directed Acyclic Graph</strong> i zarządzać kolejnością uruchamiania.</p>
+				</section>
+
+				<!-- Slajd 7: Przebieg Laboratorium -->
+				<section>
+					<h2>Co zrobimy?</h2>
+					<ol style="font-size: 0.8em;">
+						<li>Inicjalizacja projektu: <code>dbt init</code>.</li>
+						<li>Konfiguracja <code>profiles.yml</code> dla DuckDB.</li>
+						<li>Warstwa <strong>Staging</strong>: Ujednolicenie nazw i typów danych.</li>
+						<li>Obsługa JSON: Czytanie transakcji bezpośrednio w dbt.</li>
+						<li>Warstwa <strong>Fact</strong>: Budowa tabeli faktów (Join klientów, książek i transakcji).</li>
+						<li>Materializacja: Decydowanie, co jest widokiem, a co tabelą.</li>
+					</ol>
+				</section>
+
+				<!-- Slajd 8: Testy i Dokumentacja -->
+				<section>
+					<h2>Data Quality</h2>
+					<p>Lab 02 uczy, że kod to nie wszystko:</p>
+					<ul>
+						<li><strong>Tests:</strong> Automatyczna weryfikacja <code>unique</code> i <code>not_null</code>.</li>
+						<li><strong>Docs:</strong> Generowanie interaktywnej dokumentacji projektu i grafu zależności.</li>
+					</ul>
+					<pre><code class="bash" data-trim>
+						dbt test
+						dbt docs generate && dbt docs serve
+					</code></pre>
+				</section>
+
+				<!-- Slajd 9: Czego się nauczymy? (Podsumowanie) -->
+				<section>
+					<h2>Podsumowanie Lab 02</h2>
+					<ul style="font-size: 0.8em;">
+						<li class="fragment"><strong>Fundamentals:</strong> Praca z dbt CLI i strukturą projektu.</li>
+						<li class="fragment"><strong>Configuration:</strong> Zarządzanie profilami i połączeniami.</li>
+						<li class="fragment"><strong>ELT Pattern:</strong> Przesunięcie ciężaru transformacji na bazę danych.</li>
+						<li class="fragment"><strong>JSON Handling:</strong> Praca z danymi zagnieżdżonymi w SQL.</li>
+						<li class="fragment"><strong>Documentation:</strong> Tworzenie "jednego źródła prawdy" o danych.</li>
+						<li class="fragment"><strong>Automation:</strong> Uruchamianie całego potoku jedną komendą <code>dbt run</code>.</li>
+					</ul>
+				</section>
+
+			</div>
+		</div>
+
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/reveal.js"></script>
+		<script src="https://cdnjs.cloudflare.com/ajax/libs/reveal.js/4.3.1/plugin/highlight/highlight.min.js"></script>
+		<script>
+			Reveal.initialize({
+				hash: true,
+				plugins: [ RevealHighlight ]
+			});
+		</script>
+	</body>
+</html>

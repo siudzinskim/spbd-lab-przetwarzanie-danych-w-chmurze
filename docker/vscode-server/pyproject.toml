@@ -8,14 +8,16 @@ authors = ["Your Name <your.email@example.com>"]
 python = "^3.12"
 dbt-core = "^1.9.3"
 dbt-duckdb = "^1.9.2"
+dbt-bigquery = "^1.9.2"
 pandas = "*"
 apache-airflow = {version = "2.9.3", python = ">=3.10,<3.13"}
 jupyter = "*"
 faker = "*"
 kagglehub = "*"
 argcomplete = "*"
-google-cloud = "*"
-apache-airflow-providers-google = "*"
+google-cloud-storage = "*"
+google-cloud-bigquery = "*"
+google-cloud-resource-manager = "*"
 
 [build-system]
 requires = ["poetry-core"]
